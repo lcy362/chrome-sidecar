@@ -47,25 +47,12 @@ port on someone's real browser to read a public page.
   Playwright.
 - Details and troubleshooting: `references/connect.md`.
 
-## Two ways to use it
+## How to drive it
 
-### A. CLI — any agent that can run a shell
+Prefer the **library**: it carries the task-level helpers that make a flow actually finish. Use the
+**CLI** when you can only run shell commands, or for quick inspection while something is failing.
 
-```bash
-cd <skill>/scripts
-node cdp.mjs list                       # operable tabs, with target ids
-node cdp.mjs snap  <t>                  # accessibility-tree snapshot (cheap page structure)
-node cdp.mjs eval  <t> "document.title"
-node cdp.mjs click <t> ".like-wrapper"
-node cdp.mjs open  "https://example.com"   # new BACKGROUND tab
-node cdp.mjs shot  <t> /tmp/a.png       # full-page screenshot
-node cdp.mjs human <t>                  # hand over, wait, resume
-node cdp.mjs daemon status
-```
-
-`<t>` is a **unique prefix** of a tab's target id from `list`; ambiguous prefixes are rejected.
-
-### B. Library — for real flows (prefer this for anything non-trivial)
+### A. Library — the main path
 
 ```js
 import {
@@ -76,6 +63,19 @@ import {
 const { findPage, openPage, newPage } = await connectCDP();
 const app = (await findPage('example.com')) || await newPage('https://example.com');
 ```
+
+### B. CLI — shell-only agents and inspection
+
+```bash
+cd <skill>/scripts
+node cdp.mjs open  "https://example.com"   # new BACKGROUND tab; the current page is untouched
+node cdp.mjs human <t>                     # hand over to the human, wait, resume
+node cdp.mjs daemon status
+node cdp.mjs list | snap <t> | eval <t> …  # primitives, for poking at a live page
+```
+
+`<t>` is a **unique prefix** of a tab's target id from `list`; ambiguous prefixes are rejected.
+Both front-ends drive the same daemon, so the CLI never re-authorises or opens a second connection.
 
 ## Minimal example: like → screenshot → upload → submit → verify
 

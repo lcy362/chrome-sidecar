@@ -175,23 +175,10 @@ npm test                               # full self-test
 
 ## Usage
 
-### CLI — any agent that can run a shell
+The **library** is the real path — it carries the task-level helpers. The **CLI** is for poking at
+a live browser while debugging, and for agents that can only run shell commands.
 
-```bash
-cdp.mjs list                          # list operable tabs (with target ids)
-cdp.mjs snap   <t>                    # accessibility tree (cheap page structure)
-cdp.mjs eval   <t> "document.title"   # run JS
-cdp.mjs shot   <t> out.png            # full-page screenshot
-cdp.mjs click  <t> ".like-wrapper"    # real mouse click
-cdp.mjs type   <t> "hello"            # real key events
-cdp.mjs open   "https://example.com"  # new BACKGROUND tab (does not steal focus)
-cdp.mjs human  <t>                    # hand over, wait for the human, resume
-cdp.mjs daemon status
-```
-
-`<t>` is a unique prefix of a tab's target id, as printed by `list`.
-
-### Library — for real flows
+### Library
 
 ```js
 import {
@@ -293,7 +280,7 @@ skills/chrome-sidecar/
 docs/zh-CN/                  the same docs in Chinese
 ```
 
-Root files: `README.md` (this), `README.zh-CN.md`, `LICENSE` (MIT), `package.json`.
+Root files: `README.md` (this), `README.zh-CN.md`, `AGENTS.md`, `LICENSE` (MIT), `package.json`.
 
 ## Requirements
 
