@@ -156,75 +156,66 @@ your profile directory; that is how the endpoint is discovered.
 Chrome will ask you to confirm ("Allow debugging?") when a client connects. That dialog is the
 security boundary — **never automate it away**.
 
-**2. Drop the skill where your agent looks for skills**
+**2. Put the skill where your agent looks for skills**
+
+Recommended: manage it with **[flint](https://github.com/lcy362/flint)**, a local-first skill asset
+manager. You keep one directory of skills as the source of truth and flint distributes them to your
+agents (Claude Code, Cursor, Codex…) through presets, so updating a skill updates it everywhere.
+Everything is local — plain `SKILL.md` directories on disk, no account, no telemetry.
 
 ```bash
 git clone https://github.com/lcy362/chrome-sidecar
+npx flint-skills-hub      # or: npm install -g flint-skills-hub && flint
+```
+
+That opens a UI at <http://localhost:8787>. Register the cloned repository, put `chrome-sidecar` in
+a preset, and apply it to the agents you use — flint links or copies the skill into their skills
+directories.
+
+Doing it by hand instead? Same clone, then copy it yourself:
+
+```bash
 cp -R chrome-sidecar/skills/chrome-sidecar ~/.claude/skills/     # or your agent's skills dir
 ```
 
-**3. Try it**
+**3. Ask your agent for something**
 
-```bash
-cd chrome-sidecar/skills/chrome-sidecar
-node scripts/cdp.mjs daemon start     # authorise once; the connection stays up
-node scripts/cdp.mjs list             # your tabs
-node scripts/cdp.mjs snap 6BE827FA     # accessibility-tree snapshot of one tab
-npm test                               # full self-test
-```
+There is nothing to launch. Ask for something small first, so you can watch how it behaves:
 
-## Usage
+> Open example.com and tell me the page title.
 
-The **library** is the real path — it carries the task-level helpers. The **CLI** is for poking at
-a live browser while debugging, and for agents that can only run shell commands.
+Your active tab should not move. See [Using it](#using-it) below for what else to expect.
 
-### Library
+## Using it
 
-```js
-import {
-  connectCDP, ensureOn, dismissModals, uploadAndVerify,
-  scrollFull, shot, clickByText, waitForHuman, preRead, randWait,
-} from './files/browser.mjs';
+You do not drive the browser yourself. You ask your agent, in plain language, and this skill is
+what tells the agent how to behave inside your Chrome: work in a background tab, never take your
+focus, use real input events, and stop and hand over when it needs you.
 
-const { findPage, newPage } = await connectCDP();
-const social = (await findPage('example.com')) || await newPage('https://example.com/note/1');
-await social.waitReady();
+Things worth asking:
 
-await preRead(social);                       // look before you touch
-await randWait(800, 2000);
-await ensureOn(social, '.engage-bar .like-wrapper', 'like');
+> Open my ad dashboard and tell me yesterday's revenue.
 
-await scrollFull(social, 'my comment');      // Node-driven scroll + bring anchor into view
-await shot(social, '/tmp/shot.png');
+> Update the second paragraph of my saved draft, then save it.
 
-const app = (await findPage('forms.example.com')) || await newPage('https://forms.example.com/new');
-await dismissModals(app);
-if (!(await uploadAndVerify(app, '/tmp/shot.png'))) throw new Error('upload never produced a preview');
-await dismissModals(app);
-await clickByText(app, 'Submit');
+> Check whether that order shipped, and post the tracking number in the support thread.
 
-const need = await app.detectHumanNeeded();
-if (need.loginWall || need.captcha || need.twoFactor) {
-  console.log('Needs you: finish this step in the Chrome tab, then tell me.');
-  if (!(await waitForHuman(app)).ok) throw new Error('timed out waiting for the human step');
-}
-```
+> Take a screenshot of the pricing page and put it in my notes.
 
-### Inspection and debugging (CLI)
+> Turn on two-factor for my account — and hand it back to me when the QR code appears.
 
-```bash
-cdp.mjs open   "https://example.com/report"  # new BACKGROUND tab — your current page is untouched
-cdp.mjs human  <t>                           # hand over to you, wait, then resume
-cdp.mjs daemon status                        # is the connection still alive?
-```
+What to expect while it works:
 
-It also exposes the usual primitives — `list`, `snap`, `eval`, `html`, `shot`, `nav`, `net`,
-`click`, `clickxy`, `type`, `keys`, `raw` — which is what you want when something is failing and
-you need to see the live page right now. `<t>` is a unique prefix of a tab's target id, as printed
-by `list`.
+- It opens the page in a **background tab**. Your active tab does not move, and nothing you are
+  typing gets interrupted.
+- When it hits a login, a code, a QR scan or a payment confirmation, **it stops and tells you**,
+  then waits — reading only, not clicking — until you say you are done.
+- It never types your password, never reads a password field, and never asks you for a credential.
+- If it cannot finish, it says where it stopped instead of guessing.
 
-The full command surface lives in [`skills/chrome-sidecar/SKILL.md`](skills/chrome-sidecar/SKILL.md);
-conventions for changing either front-end are in [AGENTS.md](AGENTS.md).
+The technical surface — the API, the command-line front-end, and the rules for changing either —
+lives in [`skills/chrome-sidecar/SKILL.md`](skills/chrome-sidecar/SKILL.md), which your agent reads
+on your behalf. Contributors should start at [AGENTS.md](AGENTS.md).
 
 ## Security and privacy
 

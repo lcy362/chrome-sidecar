@@ -172,6 +172,10 @@ AGENTS.md            this file
 
 ## 7. Related repositories
 
+- **`lcy362/flint`** is the recommended way for *users* to install and manage skills (README
+  install step 2). That recommendation is deliberate: keep it, and keep manual copying as the
+  documented fallback rather than the primary path. Do not turn the README back into a list of
+  commands a user is expected to run.
 - **`lcy362/local-skills`** holds a Chinese-language backup copy of this skill under
   `skills/cdp-browser-automation/`. It is a **copy**, and it is already behind (no English
   translation, and it predates the `DISMISS_LABELS` fix).

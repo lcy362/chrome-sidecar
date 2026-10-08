@@ -128,71 +128,55 @@ chrome-sidecar selftest  (node v24.14.0 / darwin)
 
 **2. 把技能放到你的 agent 读取 skills 的位置**
 
+推荐用 **[flint](https://github.com/lcy362/flint)** 管理——一个本地优先的技能资产管理器。你只维护一份技能目录作为唯一事实源，flint 通过预设把它们分发到你用的各个 agent（Claude Code、Cursor、Codex……），改一处、处处同步。全部本地：磁盘上就是普通的 `SKILL.md` 目录，没有账号、没有遥测。
+
 ```bash
 git clone https://github.com/lcy362/chrome-sidecar
+npx flint-skills-hub      # 或：npm install -g flint-skills-hub && flint
+```
+
+它会打开 <http://localhost:8787> 的界面。把这个仓库注册进去，把 `chrome-sidecar` 放进一个预设，再应用到你要用的 agent 上——flint 会把技能软链或复制到它们的 skills 目录。
+
+想手动来？同样先 clone，然后自己拷：
+
+```bash
 cp -R chrome-sidecar/skills/chrome-sidecar ~/.claude/skills/     # 或你所用 agent 的 skills 目录
 ```
 
-**3. 试一下**
+**3. 让 agent 去做一件事**
 
-```bash
-cd chrome-sidecar/skills/chrome-sidecar
-node scripts/cdp.mjs daemon start     # 授权一次，连接常驻
-node scripts/cdp.mjs list             # 列出标签
-node scripts/cdp.mjs snap 6BE827FA     # 某个标签的无障碍树快照
-npm test                               # 完整自测
-```
+没有东西需要你启动。先提个小请求，好观察它的行为：
 
-## 用法
+> 打开 example.com，告诉我页面标题。
 
-**库**是主路径——任务级 helper 都在它这里。**CLI** 用于排障时查看活着的浏览器，以及只能跑 shell 命令的 agent。
+你当前的活动标签不应该发生移动。其它该有的预期见下文「怎么用它」。
 
-### 库
+## 怎么用它
 
-```js
-import {
-  connectCDP, ensureOn, dismissModals, uploadAndVerify,
-  scrollFull, shot, clickByText, waitForHuman, preRead, randWait,
-} from './files/browser.mjs';
+你不需要自己操作浏览器。你用自然语言跟 agent 说，而这个技能负责告诉 agent 在你的 Chrome 里该怎么行事：在后台标签里干活、绝不抢你的焦点、用真实输入事件、需要你的时候停下来交接。
 
-const { findPage, newPage } = await connectCDP();
-const social = (await findPage('example.com')) || await newPage('https://example.com/note/1');
-await social.waitReady();
+可以这样说：
 
-await preRead(social);                       // 先阅读，再动手
-await randWait(800, 2000);
-await ensureOn(social, '.engage-bar .like-wrapper', '点赞');
+> 打开我的广告后台，告诉我昨天的收入。
 
-await scrollFull(social, '我的评论');         // Node 侧滚动 + 把锚点滚入视口
-await shot(social, '/tmp/shot.png');
+> 把草稿第二段改一下，然后保存。
 
-const app = (await findPage('forms.example.com')) || await newPage('https://forms.example.com/new');
-await dismissModals(app);
-if (!(await uploadAndVerify(app, '/tmp/shot.png'))) throw new Error('上传始终没出现预览');
-await dismissModals(app);
-await clickByText(app, '提交');
+> 看看那个订单发货了没，发了就把单号发到支持帖里。
 
-const need = await app.detectHumanNeeded();
-if (need.loginWall || need.captcha || need.twoFactor) {
-  console.log('需要你手动操作：请在 Chrome 那个标签里完成，完成后告诉我。');
-  if (!(await waitForHuman(app)).ok) throw new Error('等待人工步骤超时');
-}
-```
+> 把定价页截个图，放进我的笔记。
 
-### 排障与查看（CLI）
+> 给我的账号开双因子——出二维码的时候交给我。
 
-```bash
-cdp.mjs open   "https://example.com/report"  # 新建**后台**标签——你正在看的页面不受影响
-cdp.mjs human  <t>                           # 交给你，等你完成后再继续
-cdp.mjs daemon status                        # 连接还活着吗
-```
+它干活时你该看到的：
 
-它还提供常用原语——`list`、`snap`、`eval`、`html`、`shot`、`nav`、`net`、`click`、`clickxy`、
-`type`、`keys`、`raw`——当某个流程失败、你需要立刻看活页面时就靠它们。`<t>` 是 `list` 输出里
-target id 的**唯一前缀**。
+- 它在**后台标签**里打开页面。你的活动标签不会移动，你正在输入的东西也不会被打断。
+- 一旦遇到登录、验证码、扫码或支付确认，它会**停下来告诉你**，然后只读地等着——不点击——直到你说完成。
+- 它不会替你输密码、不会读取密码字段、也不会向你要凭据。
+- 做不完就如实说卡在哪一步，而不是硬猜。
 
-完整命令面在 [`skills/chrome-sidecar/SKILL.md`](skills/chrome-sidecar/SKILL.md)；
-修改任一个前端的约定在 [AGENTS.md](AGENTS.md)。
+技术面——API、命令行前端、以及修改任一部分的约定——都在
+[`skills/chrome-sidecar/SKILL.md`](skills/chrome-sidecar/SKILL.md)（你的 agent 会自己读）
+与 [AGENTS.md](AGENTS.md)（贡献者从这看起）。
 
 ## 安全与隐私
 

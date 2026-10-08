@@ -1,13 +1,47 @@
 # Demo
 
-These are real outputs, not mock-ups. Nothing here touches a website or the network: the
-self-test drives a throwaway `data:` URL page opened in a **background** tab.
+Two things are worth showing: what this looks like from your side, and the evidence behind the
+main claim — that it never takes your focus.
 
-> A screencast/GIF would show this better than text. If you record one, please open a PR — and make
-> sure the recording includes the Chrome tab strip, because the whole point is that the active tab
-> never changes.
+## 1. From your side
 
-## 1. Self-test
+You ask for something; the interesting part is what happens when it needs you. This is a real
+message from a real run:
+
+```console
+⏸ Manual step needed: finish it in this Chrome tab (login / verification code / QR scan /
+  payment confirmation), then tell me and I will continue. The agent will not fill in credentials.
+▶ human step finished (waited 42s), resuming
+```
+
+While that is on screen the agent is doing nothing but polling the page, read-only. It is not
+clicking, not navigating, and not bringing the tab forward — so your typing is never interrupted.
+
+If you want a starting point, ask for something small and concrete: read yesterday's revenue out of
+a dashboard, fix a paragraph in a saved draft, check whether an order shipped, or open a settings
+page and report whether two-factor is on. The agent works out the rest; there is no command syntax
+for you to learn. See [Using it](../README.md#using-it) for the full picture.
+
+## 2. Evidence: your foreground never moves
+
+The headline claim is easy to make and easy to fake, so it is measured from **outside** the tool.
+`selftest.mjs` reads Chrome's *own* active tab (via AppleScript on macOS) before and after the run,
+and asserts the fingerprint is unchanged.
+
+`document.visibilityState` cannot be used for this check: focus emulation makes the target page
+report `visible` about itself no matter what, so the page's own opinion is worthless here. You need
+an external observation of the browser's state — which is why the test shells out to AppleScript.
+
+Every operation in the self-test happens in a background tab. The assertion is the last line:
+
+```console
+  ✓ the user foreground tab was never taken  len=139 hash=f052a60e → len=139 hash=f052a60e
+```
+
+## 3. The self-test in full
+
+It never touches a website or the network — it drives a throwaway `data:` URL page opened in a
+background tab.
 
 ```console
 $ npm test
@@ -55,78 +89,17 @@ screenshot: /var/folders/…/cdp-selftest-shot-88814.png (97 KB, 2880x7370)
 === selftest: 24/24 passed ===
 ```
 
-Two things worth reading closely:
+Two lines are worth reading closely:
 
 - **The `ensureOn` sequence.** The toggle was already on, so the first click switched it *off*; the
-  helper noticed the count went down and clicked once more. A naive `page.click()` would have
-  silently un-liked the post.
-- **The last line.** The fingerprint is Chrome's *own* active tab, read via AppleScript before and
-  after. Everything above happened in a background tab, and the user's foreground never moved.
+  helper noticed the count went down and clicked once more. A naive click would have silently
+  un-liked the post.
+- **The last line.** Everything above happened in a background tab, and the user's foreground never
+  moved.
 
-## 2. The CLI, step by step
+Both halves of that run are local (`npm test`; `npm run test:offline` skips the Chrome half). The
+online half is skipped — not silently passed — when no authorised Chrome is available, and on
+non-macOS platforms the foreground assertion is skipped for the same reason and says so.
 
-```console
-$ node scripts/cdp.mjs daemon start
-⏳ Connecting to Chrome… if Chrome shows "Allow debugging?", click Allow.
-daemon: running  pid=86930
-Chrome connection: established ✓
-browser: Chrome/154.0.8037.98
-endpoint source: /Users/lcy/Library/Application Support/Google/Chrome/DevToolsActivePort
-idle reaping: 4.0 h
-
-$ node scripts/cdp.mjs list
-3 tabs:
- 0  74D2465E  Some dashboard
- 1  BBC9E44B  Repository search results
- 2  60A0B6A8  Statistics @ Advert-network
-
-$ node scripts/cdp.mjs open "https://example.com/report"
-background tab: 4125782C  https://example.com/report
-(created in the background; your current page is untouched)
-
-$ node scripts/cdp.mjs snap 4125782C | head -4
-  heading "Report"
-  button "Export"
-
-$ node scripts/cdp.mjs eval 4125782C "location.href"
-https://example.com/report
-
-$ node scripts/cdp.mjs shot 4125782C /tmp/report.png
-/tmp/report.png  101 KB  2880x7416 (full page)
-CSS px = image px / 2
-
-$ node scripts/cdp.mjs click 4125782C ".like-wrapper"
-clicked .like-wrapper
-
-$ node scripts/cdp.mjs close 4125782C
-closed 4125782C
-```
-
-Note what is *not* happening: no `bringToFront`, no window activation, no focus change. The `open`
-line says it explicitly — the new tab is created in the background.
-
-## 3. Handing over to a human
-
-When a credential wall shows up, the agent stops instead of guessing:
-
-```console
-$ node scripts/cdp.mjs human 60A0B6A8
-⏸ Manual step needed: finish it in this Chrome tab (login / verification code / QR scan /
-  payment confirmation), then tell me and I will continue. The agent will not fill in credentials.
-▶ human step finished (waited 42s), resuming
-```
-
-While it waits, the only thing running is a read-only poll. It does not click, does not navigate,
-and does not bring the tab forward — so your typing is never interrupted.
-
-## 4. Reproducing
-
-```bash
-npm test                                            # offline checks + background-tab integration
-npm run test:offline                                # no Chrome needed
-node skills/chrome-sidecar/scripts/selftest.mjs --require-chrome   # fail instead of skipping (CI)
-```
-
-The online half is skipped automatically (not silently passed) when no authorised Chrome is
-available. On non-macOS platforms the final "foreground untouched" assertion is skipped for the
-same reason, and says so.
+> A screencast would show this better than text. If you record one, please open a PR — and include
+> the Chrome tab strip in the frame, because the whole point is that the active tab never changes.
