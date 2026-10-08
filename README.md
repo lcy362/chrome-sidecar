@@ -210,6 +210,22 @@ if (need.loginWall || need.captcha || need.twoFactor) {
 }
 ```
 
+### Inspection and debugging (CLI)
+
+```bash
+cdp.mjs open   "https://example.com/report"  # new BACKGROUND tab — your current page is untouched
+cdp.mjs human  <t>                           # hand over to you, wait, then resume
+cdp.mjs daemon status                        # is the connection still alive?
+```
+
+It also exposes the usual primitives — `list`, `snap`, `eval`, `html`, `shot`, `nav`, `net`,
+`click`, `clickxy`, `type`, `keys`, `raw` — which is what you want when something is failing and
+you need to see the live page right now. `<t>` is a unique prefix of a tab's target id, as printed
+by `list`.
+
+The full command surface lives in [`skills/chrome-sidecar/SKILL.md`](skills/chrome-sidecar/SKILL.md);
+conventions for changing either front-end are in [AGENTS.md](AGENTS.md).
+
 ## Security and privacy
 
 This tool drives a session that can read everything you are logged into. Treat it accordingly.

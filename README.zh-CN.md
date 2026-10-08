@@ -145,23 +145,9 @@ npm test                               # 完整自测
 
 ## 用法
 
-### CLI —— 任何能跑 shell 的 agent 都能用
+**库**是主路径——任务级 helper 都在它这里。**CLI** 用于排障时查看活着的浏览器，以及只能跑 shell 命令的 agent。
 
-```bash
-cdp.mjs list                          # 列出可操作标签（含 target id）
-cdp.mjs snap   <t>                    # 无障碍树（省 token 看结构）
-cdp.mjs eval   <t> "document.title"   # 执行 JS
-cdp.mjs shot   <t> out.png            # 整页截图
-cdp.mjs click  <t> ".like-wrapper"    # 真实鼠标点击
-cdp.mjs type   <t> "hello"            # 真实按键
-cdp.mjs open   "https://example.com"  # 新建**后台**标签（不抢焦点）
-cdp.mjs human  <t>                    # 交给人，等人完成后继续
-cdp.mjs daemon status
-```
-
-`<t>` 是 `list` 输出里 target id 的**唯一前缀**。
-
-### 库 —— 用于真实流程
+### 库
 
 ```js
 import {
@@ -192,6 +178,21 @@ if (need.loginWall || need.captcha || need.twoFactor) {
   if (!(await waitForHuman(app)).ok) throw new Error('等待人工步骤超时');
 }
 ```
+
+### 排障与查看（CLI）
+
+```bash
+cdp.mjs open   "https://example.com/report"  # 新建**后台**标签——你正在看的页面不受影响
+cdp.mjs human  <t>                           # 交给你，等你完成后再继续
+cdp.mjs daemon status                        # 连接还活着吗
+```
+
+它还提供常用原语——`list`、`snap`、`eval`、`html`、`shot`、`nav`、`net`、`click`、`clickxy`、
+`type`、`keys`、`raw`——当某个流程失败、你需要立刻看活页面时就靠它们。`<t>` 是 `list` 输出里
+target id 的**唯一前缀**。
+
+完整命令面在 [`skills/chrome-sidecar/SKILL.md`](skills/chrome-sidecar/SKILL.md)；
+修改任一个前端的约定在 [AGENTS.md](AGENTS.md)。
 
 ## 安全与隐私
 
@@ -251,7 +252,7 @@ skills/chrome-sidecar/
 docs/zh-CN/                  同一套文档的中文版
 ```
 
-根目录：`README.md`（英文）、`README.zh-CN.md`（本文）、`LICENSE`（MIT）、`package.json`。
+根目录：`README.md`（英文）、`README.zh-CN.md`（本文）、`AGENTS.md`、`LICENSE`（MIT）、`package.json`。
 
 ## 环境要求
 
