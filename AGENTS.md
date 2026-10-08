@@ -206,3 +206,28 @@ shortest-unique-prefix tab addressing, and the compact accessibility-tree snapsh
 This is **not a fork**; the code is written independently, and the layers above the plumbing are
 original. If you borrow more from anywhere, add it to the *Prior art* section of `README.md` in the
 same commit — and do not attach the author's name to the project name or tagline.
+
+## 10. Discoverability — the search terms move as a set
+
+People reach this repo by searching GitHub for a **Chrome skill** (and for `chrome cdp skill`,
+`claude chrome skill`, `browser automation skill`). Four places carry those terms, and they are
+expected to change **together** — editing one alone is a half-finished change:
+
+| Where | What it carries |
+|---|---|
+| GitHub **About** description | the literal phrase "Chrome skill", plus background tabs / real input events / human handoff / zero dependencies |
+| GitHub **topics** | `chrome-skill`, `chrome-automation`, `chrome-devtools-protocol`, `agent-skill`, `agent-skills`, `claude-skill`, `browser-automation`, … |
+| `README.md` / `README.zh-CN.md` | the phrase in the opening paragraph **and** in the `## What is a "Chrome skill"?` heading, plus the alias sentence (Chrome CDP skill, Claude Chrome skill, browser-automation skill) |
+| `package.json` | same terms in `description` and `keywords`, ASCII-hyphenated |
+
+Also: the commented JSON-LD block at the top of `README.md` mirrors the About description — update it
+in the same commit.
+
+Rules:
+
+- **The phrase has to appear literally.** Search does not match synonyms; "controls your browser"
+  does not score for "Chrome skill".
+- **Headings and the first screen matter more than a keyword dump** at the bottom of the README. Do
+  not add a keyword-stuffed section instead of putting the term where a human reads it.
+- **Never invent a capability to fit a keyword.** The list only grows with things the repo actually
+  does; a task the skill refuses (reading public pages, for instance) stays out of it.

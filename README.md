@@ -1,12 +1,51 @@
 # chrome-sidecar
 
-**Give your AI agent hands in your own Chrome — without taking the wheel.**
+<!--
+JSON-LD structured data, for search engines and AI engines that read repository READMEs (GitHub does
+not execute it; the raw JSON is what gets read). Keep it in sync with the GitHub "About" description,
+the topic list, and package.json.
+-->
 
-An [agent skill](https://github.com/pasky/chrome-cdp-skill)-style toolkit that drives the Chrome
-you are *already using*: your profile, your tabs, your logins. It works in **background tabs**
-so it never steals your focus, uses **real mouse and keyboard events** so it does not betray
-itself to anti-bot heuristics, and **hands control back to you** when a password or a 2FA code
-is on screen.
+<!--
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "chrome-sidecar",
+  "applicationCategory": "DeveloperApplication",
+  "operatingSystem": "macOS, Linux, Windows",
+  "description": "A Chrome skill for AI agents: drive the Chrome you are already using over the Chrome DevTools Protocol, in background tabs with real mouse and keyboard events, and hand control back to the human at password, 2FA and CAPTCHA walls. Zero runtime dependencies.",
+  "url": "https://github.com/lcy362/chrome-sidecar",
+  "codeRepository": "https://github.com/lcy362/chrome-sidecar",
+  "programmingLanguage": "JavaScript",
+  "runtimePlatform": "Node.js 22+",
+  "softwareVersion": "1.0.0",
+  "license": "https://opensource.org/licenses/MIT",
+  "keywords": "chrome skill, chrome cdp skill, claude chrome skill, chrome automation skill, browser automation skill, agent skill, claude code skill, chrome devtools protocol, human in the loop, zero dependency",
+  "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+  "author": {
+    "@type": "Person",
+    "@id": "https://lichuanyang.top/#author",
+    "name": "SandGrid",
+    "alternateName": "lcy362",
+    "url": "https://lichuanyang.top/",
+    "sameAs": ["https://github.com/lcy362"]
+  }
+}
+</script>
+-->
+
+**A Chrome skill for AI agents — give your agent hands in your own Chrome, without taking the wheel.**
+
+`chrome-sidecar` is an [agent skill](https://github.com/pasky/chrome-cdp-skill)-style toolkit that
+drives the Chrome you are *already using*: your profile, your tabs, your logins. It works in
+**background tabs** so it never steals your focus, uses **real mouse and keyboard events** so it
+does not betray itself to anti-bot heuristics, and **hands control back to you** when a password or
+a 2FA code is on screen.
+
+It ships as one `SKILL.md` directory, so it drops into any agent that reads skills — Claude Code,
+Cursor, Codex, Gemini CLI — installed either through [flint](https://github.com/lcy362/flint) or by
+copying that one directory.
 
 Zero runtime dependencies. Node 22+ only.
 
@@ -24,6 +63,23 @@ Zero runtime dependencies. Node 22+ only.
 `references/` ship in English; the original Chinese docs are kept in `docs/zh-CN/`.
 
 ---
+
+## What is a "Chrome skill"?
+
+A **Chrome skill** is an agent skill whose job is to *operate* a real Chrome — click, type, upload,
+submit, read the dashboard behind a login — rather than only fetch a public page. `chrome-sidecar`
+is one, and deliberately the narrow kind:
+
+| What you need | What to use |
+|---|---|
+| Read a public page | A normal page fetch. No debugging port on anyone's browser. |
+| Automate a site from scratch, in CI | Playwright / Puppeteer and a throwaway browser. |
+| Act inside the Chrome the human is already logged into | **This** — a background tab in the browser that is already open. |
+
+The same idea travels under several names — Chrome CDP skill, Chrome automation skill, Claude Chrome
+skill, browser-automation skill, "let the agent use my browser" — and they all point at the same
+layer: protocol-level control of a browser that a human is also using. That is exactly the place
+where the naive designs in the next section fall over.
 
 ## Why this exists
 
@@ -145,7 +201,7 @@ chrome-sidecar selftest  (node v24.14.0 / darwin)
 The `ensureOn` sequence above is the point: the toggle was *already on*, so the first click
 turned it off, the helper detected the count drop and clicked back.
 
-## Install
+## Install the Chrome skill
 
 **1. Enable remote debugging in your normal Chrome**
 

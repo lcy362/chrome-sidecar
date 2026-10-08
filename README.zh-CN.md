@@ -1,8 +1,10 @@
 # chrome-sidecar
 
-**让你的 AI agent 在你自己的 Chrome 里有双手——但不抢方向盘。**
+**面向 AI agent 的 Chrome 技能——让你的 agent 在你自己的 Chrome 里有双手，又不抢方向盘。**
 
-一个 [agent skill](https://github.com/pasky/chrome-cdp-skill) 形态的工具集，驱动你**正在使用的那一份** Chrome：你的配置目录、你的标签页、你的登录态。它在**后台标签**里工作，所以从不抢走你的焦点；它用**真实鼠标与键盘事件**，所以不会在反机器人启发式面前露馅；当屏幕上出现密码框或验证码时，它**把控制权交还给你**。
+`chrome-sidecar` 是一个 [agent skill](https://github.com/pasky/chrome-cdp-skill) 形态的工具集，驱动你**正在使用的那一份** Chrome：你的配置目录、你的标签页、你的登录态。它在**后台标签**里工作，所以从不抢走你的焦点；它用**真实鼠标与键盘事件**，所以不会在反机器人启发式面前露馅；当屏幕上出现密码框或验证码时，它**把控制权交还给你**。
+
+它以单个 `SKILL.md` 目录的形式发布，因此任何读取 skill 的 agent 都能直接用——Claude Code、Cursor、Codex、Gemini CLI 皆可；安装可以走 [flint](https://github.com/lcy362/flint)，也可以直接拷这一个目录。
 
 零运行时依赖，只需 Node 22+。
 
@@ -19,6 +21,18 @@
 📖 [English](README.md) · [docs/zh-CN](docs/zh-CN) —— 面向 agent 的 `SKILL.md` 与 `references/` 以英文发布，原始中文文档保留在 `docs/zh-CN/`。
 
 ---
+
+## 什么算「Chrome 技能」
+
+**Chrome 技能**指的是：让 agent 去**操作**真实 Chrome 的 skill——点击、输入、上传、提交、读取登录后的后台——而不是仅仅抓一个公开页面。`chrome-sidecar` 就是其中之一，而且刻意收得很窄：
+
+| 你的需求 | 该用什么 |
+|---|---|
+| 读取一个公开页面 | 普通网页抓取。不需要在任何人的浏览器上开调试端口 |
+| 从零自动化某个站点、跑在 CI 里 | Playwright / Puppeteer + 一次性浏览器 |
+| 在人已经登录的那份 Chrome 里操作 | **本项目**——在已经开着的那个浏览器里新开一个后台标签 |
+
+同一件事还有别的叫法：Chrome CDP 技能、浏览器自动化技能、Claude Chrome 技能、"让 agent 用我的浏览器"——说的都是同一层：对一个**人也在同时使用**的浏览器做协议级控制。而这恰好是下文那些朴素实现翻车的地方。
 
 ## 为什么做这个
 
@@ -118,7 +132,7 @@ chrome-sidecar selftest  (node v24.14.0 / darwin)
 
 上面 `ensureOn` 的那段才是重点：那个开关**本来就是开着的**，所以第一次点击把它关掉了，helper 发现计数下降后补点恢复。
 
-## 安装
+## 安装这个 Chrome 技能
 
 **1. 在你正常使用的 Chrome 里开启远程调试**
 
