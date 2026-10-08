@@ -1,0 +1,32 @@
+{
+  "name": "chrome-sidecar",
+  "version": "1.0.0",
+  "description": "Let an AI agent work in your own Chrome — without stealing the wheel. Runs in background tabs, uses real mouse and keyboard events, and hands control back to you when credentials are involved.",
+  "keywords": [
+    "chrome",
+    "cdp",
+    "chrome-devtools-protocol",
+    "browser-automation",
+    "ai-agent",
+    "agent-skill",
+    "claude-code",
+    "human-in-the-loop",
+    "zero-dependency"
+  ],
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "files": [
+    "skills/",
+    "docs/",
+    "README.md",
+    "README.zh-CN.md"
+  ],
+  "scripts": {
+    "test": "node skills/chrome-sidecar/scripts/selftest.mjs",
+    "test:offline": "node skills/chrome-sidecar/scripts/selftest.mjs --offline",
+    "cdp": "node skills/chrome-sidecar/scripts/cdp.mjs"
+  }
+}
