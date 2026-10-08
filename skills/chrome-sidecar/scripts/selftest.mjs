@@ -1,16 +1,16 @@
 #!/usr/bin/env node
-// selftest.mjs — 自测。分两部分：
+// selftest.mjs — self-test, in two parts:
 //
-//   A. 离线检查：不需要 Chrome，验证端口文件解析、候选路径、工具函数。
-//   B. 联机检查：需要一个开着 chrome://inspect 授权的 Chrome。会在**后台**标签
-//      里跑完整策略层（ensureOn / dismissModals / uploadAndVerify / clickByText /
-//      scrollFull / shot / waitForHuman），并（macOS 上）用 Chrome 自身的活动标签
-//      做独立验证：全程没有抢用户前台。
+//   A. Offline: no Chrome needed. Verifies port-file parsing, candidate paths, utilities.
+//   B. Online: needs an authorised Chrome. Runs the whole policy layer in a **background** tab
+//      (ensureOn / dismissModals / uploadAndVerify / clickByText / scrollFull / shot /
+//      waitForHuman) and, on macOS, independently verifies with Chrome's own active tab
+//      that the user's foreground was never taken.
 //
-// 用法：
-//   node scripts/selftest.mjs                # 能连就全跑，连不上只跑离线部分
-//   node scripts/selftest.mjs --offline      # 只跑离线部分
-//   node scripts/selftest.mjs --require-chrome   # 连不上就失败退出（CI 用）
+// Usage:
+//   node scripts/selftest.mjs                    # run everything if Chrome is reachable
+//   node scripts/selftest.mjs --offline          # offline checks only
+//   node scripts/selftest.mjs --require-chrome   # fail instead of skipping (for CI)
 
 import fs from 'node:fs';
 import os from 'node:os';
@@ -33,60 +33,61 @@ const check = (name, pass, extra = '') => {
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
 // ---------------------------------------------------------------------------
-// A. 离线检查
+// A. Offline checks
 // ---------------------------------------------------------------------------
 
 async function offlineChecks() {
-  console.log('\n== A. 离线检查 ==');
+  console.log('\n== A. Offline checks ==');
   const core = await import(path.join(SKILL, 'files/cdp-core.mjs'));
 
-  // 端口文件解析
+  // port-file parsing
   const tmp = path.join(os.tmpdir(), `cdp-selftest-port-${process.pid}`);
   fs.writeFileSync(tmp, '9333\n/devtools/browser/abc-def\n');
   const parsed = core.parsePortFile(tmp);
-  check('parsePortFile 读出端口与 ws 路径', parsed.port === 9333 && parsed.wsPath === '/devtools/browser/abc-def',
+  check('parsePortFile reads port and ws path', parsed.port === 9333 && parsed.wsPath === '/devtools/browser/abc-def',
     `port=${parsed.port} path=${parsed.wsPath}`);
   fs.unlinkSync(tmp);
 
-  // 内容异常时必须抛错，而不是静默用一个坏端口
+  // a malformed file must throw, not silently yield a bad port
   const bad = path.join(os.tmpdir(), `cdp-selftest-bad-${process.pid}`);
   fs.writeFileSync(bad, 'not-a-port\n');
   let threw = false;
   try { core.parsePortFile(bad); } catch { threw = true; }
-  check('parsePortFile 对坏文件抛错', threw);
+  check('parsePortFile throws on a malformed file', threw);
   fs.unlinkSync(bad);
 
-  // 候选路径必须覆盖当前平台，且不能出现明显拼错的路径
+  // candidates must cover this platform and must not contain the classic typo
   const cands = core.candidatePortFiles();
-  check('候选端口文件列表非空', cands.length > 0, `${cands.length} 条`);
+  check('candidate port-file list is non-empty', cands.length > 0, `${cands.length} entries`);
   if (process.platform === 'darwin') {
-    // macOS 的实际布局是 Google/Chrome 两层目录，不是 "Google Chrome"
+    // macOS uses the two-level Google/Chrome layout, not "Google Chrome"
     const macPath = cands.find(p => p.includes('Library/Application Support/Google/Chrome/DevToolsActivePort'));
-    check('macOS 候选路径为 Google/Chrome（两层目录）', !!macPath, macPath || '未找到');
-    check('候选中不含 "Google Chrome/DevToolsActivePort" 这种错误写法',
+    check('macOS candidate is Google/Chrome (two levels)', !!macPath, macPath || 'not found');
+    check('no candidate uses the malformed "Google Chrome/DevToolsActivePort" form',
       !cands.some(p => p.includes('Application Support/Google Chrome/DevToolsActivePort')));
   }
 
-  // shuffle 必须真的改变顺序（固定种子做不到，这里用多次采样）
+  // shuffle must actually reorder (sample repeatedly rather than seeding)
   const { shuffle } = await import(path.join(SKILL, 'files/browser.mjs'));
   const base = [1, 2, 3, 4, 5, 6, 7, 8];
   const shuffledAtLeastOnce = Array.from({ length: 20 }, () => shuffle(base).join(''))
     .some(s => s !== base.join(''));
-  check('shuffle 会改变顺序', shuffledAtLeastOnce);
-  check('shuffle 不丢元素', shuffle(base).sort((a, b) => a - b).join('') === base.join(''));
+  check('shuffle changes the order', shuffledAtLeastOnce);
+  check('shuffle keeps every element', shuffle(base).sort((a, b) => a - b).join('') === base.join(''));
 
-  // 用户脚本引用路径必须存在（文档里写的文件名与实际一致）
+  // every path quoted in the docs must exist
   for (const rel of ['files/cdp-core.mjs', 'files/cdp-daemon.mjs', 'files/browser.mjs', 'scripts/cdp.mjs']) {
-    check(`文件存在: ${rel}`, fs.existsSync(path.join(SKILL, rel)));
+    check(`file exists: ${rel}`, fs.existsSync(path.join(SKILL, rel)));
   }
 }
 
 // ---------------------------------------------------------------------------
-// B. 联机检查
+// B. Online checks
 // ---------------------------------------------------------------------------
 
-// macOS 上读 Chrome 当前活动标签的指纹（只取长度+哈希，不打印 URL 内容）。
-// 这是唯一能独立判断「有没有抢用户前台」的方法：伪聚焦会让目标页自己恒报 visible。
+// On macOS, fingerprint Chrome's active tab (length + hash only; the URL itself is not printed).
+// The only independent way to tell whether the foreground was taken. Focus emulation makes the
+// target page report itself as visible no matter what, so visibilityState cannot be used here.
 function activeTabFingerprint() {
   if (process.platform !== 'darwin') return null;
   try {
@@ -103,14 +104,14 @@ function activeTabFingerprint() {
 const TEST_PAGE = `<!doctype html><meta charset=utf-8><title>cdp-selftest</title>
 <style>body{background:#123456;margin:0;color:#fff;font:16px sans-serif}
 .row{padding:16px}</style>
-<div class="row" id="like" data-on="1"><span class="cnt">13</span> 点赞</div>
-<div class="row"><button id="submit">提交任务</button></div>
+<div class="row" id="like" data-on="1"><span class="cnt">13</span> Like</div>
+<div class="row"><button id="submit">Submit task</button></div>
 <div class="row"><input id="f" type="file" accept="image/*"></div>
-<div class="row" id="loginbox"><input type="password" placeholder="密码"></div>
+<div class="row" id="loginbox"><input type="password" placeholder="Password"></div>
 <div class="row"><div role="dialog" data-state="open" style="position:relative;z-index:50">
-  <button id="dismiss">知道了</button></div></div>
+  <button id="dismiss">Got it</button></div></div>
 <div style="height:3000px"></div>
-<div class="row" id="anchor">锚点文本</div>
+<div class="row" id="anchor">anchor text</div>
 <div style="height:400px"></div>
 <script>
   const like = document.getElementById('like');
@@ -128,7 +129,7 @@ const TINY_PNG = Buffer.from(
   'base64');
 
 async function onlineChecks() {
-  console.log('\n== B. 联机检查（后台标签，不抢前台）==');
+  console.log('\n== B. Online checks (background tab, no focus stealing) ==');
   const {
     connectCDP, ensureOn, dismissModals, uploadAndVerify, scrollFull, shot,
     clickByText, waitForHuman, humanClick, humanScroll,
@@ -146,15 +147,15 @@ async function onlineChecks() {
   await page.waitReady();
   await sleep(600);
 
-  check('后台标签中 evaluate 可用', (await page.title()) === 'cdp-selftest');
-  check('新建的是后台标签（新标签不会挤掉用户正在看的页面）', (await page.visible()) !== null);
+  check('evaluate works in a background tab', (await page.title()) === 'cdp-selftest');
+  check('the new tab was created in the background', (await page.visible()) !== null);
 
-  // 数字比较法：初始为「已开启」，点击会变成关闭 → ensureOn 应自动补点恢复
-  const on = await ensureOn(page, '#like', '点赞');
-  check('ensureOn 恢复被误关的开关态', on === true, `最终计数=${(await page.text('#like'))?.trim()}`);
+  // Numeric comparison: the toggle starts ON, a click turns it off, so ensureOn must click back
+  const on = await ensureOn(page, '#like', 'Like');
+  check('ensureOn restores a toggle that got switched off', on === true, `final count=${(await page.text('#like'))?.trim()}`);
 
   await dismissModals(page);
-  check('dismissModals 关掉遮罩弹窗', (await page.count('[role=dialog]')) === 0);
+  check('dismissModals closes an overlay modal', (await page.count('[role=dialog]')) === 0);
 
   await page.evaluate(() => {
     const i = document.getElementById('f');
@@ -164,21 +165,21 @@ async function onlineChecks() {
       i.after(img);
     });
   });
-  check('uploadAndVerify 轮询到真实预览', (await uploadAndVerify(page, png)) === true);
+  check('uploadAndVerify polls until a real preview appears', (await uploadAndVerify(page, png)) === true);
 
-  check('clickByText 命中按钮而不是外层容器', (await clickByText(page, '提交任务')) === true
+  check('clickByText hits the button, not the wrapping container', (await clickByText(page, 'Submit task')) === true
     && (await page.count('#submit')) === 0);
 
-  const r = await scrollFull(page, '锚点文本');
-  check('scrollFull（Node 侧驱动）推进到文档深处', (await page.scrollInfo()).y > 500, `轮次=${r.rounds}`);
+  const r = await scrollFull(page, 'anchor text');
+  check('scrollFull (Node-driven) reaches deep into the document', (await page.scrollInfo()).y > 500, `rounds=${r.rounds}`);
 
   await shot(page, outPng);
-  check('整页截图落盘且非空', fs.existsSync(outPng) && fs.statSync(outPng).size > 2000);
+  check('full-page screenshot is written and non-empty', fs.existsSync(outPng) && fs.statSync(outPng).size > 2000);
 
-  // 交接：模拟「人完成操作」——移除登录墙后 waitForHuman 应自行返回
+  // Handoff: simulate the human finishing — once the login wall is gone, waitForHuman returns
   const humanOk = await page.evaluate("!!document.getElementById('loginbox')");
-  check('detectHumanNeeded 能识别登录墙', humanOk === true);
-  check('waitForHuman 检测到人工完成后继续', (await waitForHuman(page, {
+  check('detectHumanNeeded spots a login wall', humanOk === true);
+  check('waitForHuman resumes once the human step is done', (await waitForHuman(page, {
     pollMs: 300, timeoutMs: 5000,
     signal: async () => {
       await page.evaluate("document.getElementById('loginbox')?.remove()");
@@ -188,17 +189,17 @@ async function onlineChecks() {
 
   await humanClick(page, '#like');
   await humanScroll(page, { rounds: 2 });
-  check('humanClick / humanScroll 可执行（真实输入事件在后台标签可用）', true);
+  check('humanClick / humanScroll run (real input works in a background tab)', true);
 
   await closePage(page);
   await sleep(500);
-  check('临时标签已清理', (await listTargets()).length === before);
+  check('temporary tab cleaned up', (await listTargets()).length === before);
 
   const fpAfter = activeTabFingerprint();
   if (fpAfter === null) {
-    console.log('  · 跳过「前台未被抢」验证（该检查仅 macOS 可用）');
+    console.log('  · skipping the "foreground untouched" check (macOS only)');
   } else {
-    check('全程未抢用户前台标签', fpAfter === fpBefore, `${fpBefore} → ${fpAfter}`);
+    check('the user foreground tab was never taken', fpAfter === fpBefore, `${fpBefore} → ${fpAfter}`);
   }
 
   fs.unlinkSync(png);
@@ -208,7 +209,7 @@ async function onlineChecks() {
 // ---------------------------------------------------------------------------
 
 (async () => {
-  console.log(`cdp-browser-automation selftest  (node ${process.version} / ${process.platform})`);
+  console.log(`chrome-sidecar selftest  (node ${process.version} / ${process.platform})`);
   await offlineChecks();
 
   if (!OFFLINE_ONLY) {
@@ -217,21 +218,21 @@ async function onlineChecks() {
     } catch (e) {
       const msg = String(e.message || e);
       if (REQUIRE_CHROME) {
-        console.log('\n== B. 联机检查 ==');
-        check('连接 Chrome', false, msg.split('\n')[0]);
+        console.log('\n== B. Online checks ==');
+        check('connect to Chrome', false, msg.split('\n')[0]);
       } else {
-        console.log('\n== B. 联机检查：跳过 ==');
-        console.log('  未连接到 Chrome：' + msg.split('\n')[0]);
-        console.log('  需要正常打开的 Chrome，并在 chrome://inspect/#remote-debugging 勾选授权。');
-        console.log('  只用 --offline 可显式跳过这部分。');
+        console.log('\n== B. Online checks: skipped ==');
+        console.log('  Could not reach Chrome: ' + msg.split('\n')[0]);
+        console.log('  Needs a normally running Chrome with the chrome://inspect toggle ticked.');
+        console.log('  Pass --offline to skip this part explicitly.');
       }
     }
   }
 
   const failed = results.filter(r => !r.pass);
-  console.log(`\n=== selftest: ${results.length - failed.length}/${results.length} 通过 ===`);
+  console.log(`\n=== selftest: ${results.length - failed.length}/${results.length} passed ===`);
   if (failed.length) {
-    console.log('失败项：');
+    console.log('failed:');
     for (const f of failed) console.log('  - ' + f.name);
   }
   process.exit(failed.length ? 1 : 0);

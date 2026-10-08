@@ -1,16 +1,16 @@
-// browser.mjs — 策略层（本技能的核心资产）
+// browser.mjs — the policy layer (the core asset of this skill)
 //
-// 上面两层（cdp-core / cdp-daemon）解决「怎么连、怎么下命令」；
-// 这一层解决「下完命令怎么确认它真的生效，并且不打扰用户」。
+// The two layers above (cdp-core / cdp-daemon) answer "how do we connect, how do we issue commands";
+// this layer answers "how do we confirm the command actually worked, without disturbing the user".
 //
-// 两个贯穿全层的原则：
-//   1. 不抢前台 —— 所有操作都走 CDP/Input 或 evaluate，只在后台标签上生效，
-//      绝不调用 bringToFront。用户正在打字时 agent 不会把标签抢走。
-//   2. Node 侧驱动 —— 后台标签的 setInterval 被节流到 ~1Hz、requestAnimationFrame
-//      完全挂起（已实机验证），所以滚动、等待、轮询一律由 Node 侧循环驱动，
-//      不放进页面里跑定时器。
+// Two principles run through all of it:
+//   1. Never steal the foreground — everything goes through CDP/Input or evaluate in a background tab,
+//      and bringToFront is never called, so the agent cannot yank a tab away mid-typing.
+//   2. Drive from Node — a background tab throttles setInterval to ~1 Hz and stops
+//      requestAnimationFrame entirely (measured), so scrolling, waiting and polling are Node loops
+//      rather than timers living inside the page.
 //
-// 用法：
+// Usage:
 //   import { connectCDP, ensureOn, scrollFull, shot, uploadAndVerify, waitForHuman }
 //     from './files/browser.mjs';
 //   const { page, findPage, newPage } = await connectCDP();
@@ -22,7 +22,7 @@ import { connectDaemon } from './cdp-daemon.mjs';
 export { sleep, randWait } from './cdp-core.mjs';
 const { sleep } = core;
 
-// 把 daemon 客户端适配成 cdp-core 期望的连接接口（send(method, params, targetRef)）
+// Adapt the daemon client to the connection interface cdp-core expects: send(method, params, ref)
 function asConn(client) {
   return {
     send: (method, params = {}, targetRef) => client.call(method, params, targetRef),
@@ -31,7 +31,7 @@ function asConn(client) {
 }
 
 // ---------------------------------------------------------------------------
-// 连接
+// Connection
 // ---------------------------------------------------------------------------
 
 export async function connectCDP({ verbose = false } = {}) {
@@ -41,7 +41,7 @@ export async function connectCDP({ verbose = false } = {}) {
   const listTargets = () => client.targets();
   const find = (substr) => listTargets().then(ts => ts.find(t => t.url.includes(substr)) || null);
   const newPage = async (url) => {
-    // background:true —— 关键：新标签不会把用户正在看的页面挤到后面
+    // background:true — the key bit: a new tab does not push the page the user is reading behind
     const { targetId } = await client.newTarget(url || 'about:blank', true);
     const p = new Page(conn, targetId);
     if (url) await p.waitReady();
@@ -81,7 +81,7 @@ export class Page {
     this.targetRef = targetId;
   }
 
-  // ---- 读取 ----
+  // ---- read ----
   evaluate(fn, arg) { return core.evaluate(this.conn, this.targetRef, fn, arg); }
   url() { return this.evaluate('location.href'); }
   title() { return this.evaluate('document.title'); }
@@ -93,7 +93,7 @@ export class Page {
   net() { return core.resourceTiming(this.conn, this.targetRef); }
   humanNeeded() { return core.detectHumanNeeded(this.conn, this.targetRef); }
 
-  // ---- 导航 ----
+  // ---- navigation ----
   goto(url, opts) { return core.navigate(this.conn, this.targetRef, url, opts); }
   async reload(opts) { return core.navigate(this.conn, this.targetRef, await this.url(), opts); }
 
@@ -107,7 +107,7 @@ export class Page {
     return false;
   }
 
-  // Node 侧轮询等元素出现（不用页面内定时器）
+  // Node-side polling until the element appears (no in-page timers)
   async waitForSelector(selector, { timeout = 10000, interval = 200 } = {}) {
     const deadline = Date.now() + timeout;
     while (Date.now() < deadline) {
@@ -120,34 +120,34 @@ export class Page {
 
   waitForTimeout = (ms) => sleep(ms);
 
-  // ---- 操作 ----
+  // ---- actions ----
   async click(selector, { timeout = 8000, via = 'input', human = false } = {}) {
     if (!(await this.waitForSelector(selector, { timeout }))) {
-      throw new Error('点击失败，未找到元素: ' + selector);
+      throw new Error('Click failed, element not found: ' + selector);
     }
     if (via === 'dom') {
-      // DOM 级点击：更快，且能绕过 z-index 遮罩拦截真实指针的场合
+      // DOM-level click: faster, and bypasses overlays that would intercept real pointer events
       await this.evaluate(s => document.querySelector(s).click(), selector);
       return true;
     }
     const c = await core.elementCenter(this.conn, this.targetRef, selector);
-    if (!c) throw new Error('点击失败，元素无布局盒: ' + selector);
+    if (!c) throw new Error('Click failed, element has no layout box: ' + selector);
     try {
       if (human) await humanClickAt(this, c.x, c.y);
       else await core.clickAt(this.conn, this.targetRef, c.x, c.y);
       return true;
     } catch (e) {
-      // 输入事件的 ack 在未被激活的后台标签上会被无限期拖住，此时回退 DOM 点击
-      console.log(`  ⚠ 真实点击失败(${e.message})，回退 DOM 点击: ${selector}`);
+      // Input acks stall indefinitely on an unactivated background tab, so fall back to a DOM click
+      console.log(`  ⚠ real click failed (${e.message}); falling back to a DOM click: ${selector}`);
       await this.evaluate(s => document.querySelector(s).click(), selector);
       return true;
     }
   }
 
-  // 按可见文本找元素并点击。
-  // 选元素的优先级：精确文本 > 可交互标签 > DOM 更深（更具体）。
-  // 只用 innerText.includes 会在「按钮外层还套了一层 div」时先命中那个 div，
-  // 结果点在容器的空白处，什么都不会发生。
+  // Find an element by its visible text and click it.
+  // Priority: exact text > interactive tag > deeper DOM node (more specific).
+  // innerText.includes alone matches the wrapping div first when a button sits inside one,
+  // so the click lands on empty space and nothing happens.
   async clickText(text, { timeout = 8000, via = 'input' } = {}) {
     const selector = await this.evaluate((t) => {
       const norm = (s) => (s || '').replace(/\s+/g, ' ').trim();
@@ -182,7 +182,7 @@ export class Page {
     return true;
   }
 
-  // 走真实键盘事件（有 keydown/keyup），比 insertText 更像人手，能触发键盘相关组件
+  // Real key events (with keydown/keyup): closer to a human, and they trigger keyboard-driven components
   type(text, { delay = 40 } = {}) { return core.typeText(this.conn, this.targetRef, text, { delay }); }
   insertText(text) { return core.insertText(this.conn, this.targetRef, text); }
 
@@ -196,13 +196,13 @@ export class Page {
     await this.type(text, { delay });
   }
 
-  // 注意：绝不主动调用。保留它只是为了兼容旧脚本，文档里明确标注「不要用」。
+  // Never call this. It exists only for old scripts, and the docs say not to use it.
   bringToFront() {
-    console.warn('[cdp] bringToFront 被调用 —— 这会打断用户，本技能的设计目标是永不抢前台');
+    console.warn('[cdp] bringToFront called — this interrupts the user; never stealing focus is the whole point');
     return Promise.resolve();
   }
 
-  // ---- 滚动（Node 侧驱动） ----
+  // ---- scrolling (Node-driven) ----
   scrollTo(y) { return core.scrollTo(this.conn, this.targetRef, y); }
   wheel(deltaY) { return core.mouseWheel(this.conn, this.targetRef, deltaY); }
   scrollInfo() {
@@ -211,7 +211,7 @@ export class Page {
     }));
   }
 
-  // ---- 截图 ----
+  // ---- screenshots ----
   async screenshot({ path, fullPage = false } = {}) {
     return core.screenshot(this.conn, this.targetRef, path, { fullPage });
   }
@@ -224,12 +224,12 @@ export class Page {
 }
 
 // ---------------------------------------------------------------------------
-// 业务策略 helper —— 这些是「对方没有」的部分
+// Task-level policy helpers — the part most tools do not have
 // ---------------------------------------------------------------------------
 
-// 用「数字比较法」确保开关处于开启态。
-// className（active/on）在 SPA 上不可靠，甚至有「没有 class 才是开」的反例；
-// 但计数数字是可观测的：点击后数字变小 → 说明本来已开、被点成了关闭 → 补点一次。
+// Make sure a toggle ends up ON, using numeric comparison.
+// className (active/on) is unreliable in SPAs — sometimes the ABSENCE of a class means "on";
+// but the count is observable: if a click makes it DROP, it was already on and we just turned it off.
 export async function ensureOn(page, selector, name = selector) {
   const readNum = () => page.evaluate(sel => {
     const el = document.querySelector(sel);
@@ -239,29 +239,34 @@ export async function ensureOn(page, selector, name = selector) {
   }, selector);
 
   const n1 = await readNum();
-  if (n1 < 0) { console.log(`  ⚠ ${name}: 元素不存在，跳过`); return false; }
-  console.log(`  ${name} 点击前: ${n1}`);
+  if (n1 < 0) { console.log(`  ⚠ ${name}: element not found, skipping`); return false; }
+  console.log(`  ${name} before click: ${n1}`);
 
   await page.click(selector).catch(() => {});
   await sleep(1200);
   const n2 = await readNum();
-  console.log(`  ${name} 点击后: ${n2}`);
+  console.log(`  ${name} after click: ${n2}`);
 
-  if (n2 > n1) { console.log(`  ✓ ${name} 已置为开启 (${n1} → ${n2})`); return true; }
-  if (n2 === n1) { console.log(`  ⚠ ${name} 计数未变化，无法判定开关状态`); return false; }
+  if (n2 > n1) { console.log(`  ✓ ${name} is now on (${n1} → ${n2})`); return true; }
+  if (n2 === n1) { console.log(`  ⚠ ${name} count unchanged — cannot determine toggle state`); return false; }
 
-  // 数字下降 = 它本来就是开启态，被这一下点成了关闭 → 补点恢复
-  console.log(`  ⚠ ${name} 已开启被取消，补点恢复…`);
+  // A drop means it was already on and this click turned it off → click again to restore
+  console.log(`  ⚠ ${name} was on and got toggled off; clicking again…`);
   await page.click(selector).catch(() => {});
   await sleep(1200);
   const n3 = await readNum();
-  console.log(`  ${name} 补点后: ${n3}`);
-  if (n3 > n2) { console.log(`  ✓ ${name} 已恢复为开启 (${n2} → ${n3})`); return true; }
-  console.log(`  ✗ ${name} 未能恢复为开启`);
+  console.log(`  ${name} after corrective click: ${n3}`);
+  if (n3 > n2) { console.log(`  ✓ ${name} restored to on (${n2} → ${n3})`); return true; }
+  console.log(`  ✗ ${name} could not be restored to on`);
   return false;
 }
 
-const DISMISS_LABELS = ['不再提示', '取消', '关闭', '知道了', '确定', '好的', '稍后再说', '稍后', 'Close'];
+// Safe dismiss labels. The Chinese entries match Chinese UIs, the English ones cover English UIs.
+// These are data to match against, not prose — do not translate them away.
+const DISMISS_LABELS = [
+  '不再提示', '取消', '关闭', '知道了', '确定', '好的', '稍后再说', '稍后',
+  'Close', 'Dismiss', 'Cancel', 'Not now', 'Later', 'Got it', 'OK', 'I understand', 'No thanks',
+];
 const MODAL_SELECTORS = [
   '[role="dialog"][data-state="open"]',
   'div[data-state="open"][class*="z-50"]',
@@ -269,7 +274,7 @@ const MODAL_SELECTORS = [
   '[class*="modal"]',
 ];
 
-// 关掉拦截点击的弹窗/遮罩（radix-ui 一类会把提交按钮盖住，点击被吞掉）
+// Dismiss modals and overlays that swallow clicks (radix-ui style overlays cover the submit button)
 export async function dismissModals(page, { rounds = 4 } = {}) {
   for (let i = 0; i < rounds; i++) {
     const closed = await page.evaluate(({ labels, selectors }) => {
@@ -287,24 +292,24 @@ export async function dismissModals(page, { rounds = 4 } = {}) {
       return null;
     }, { labels: DISMISS_LABELS, selectors: MODAL_SELECTORS });
     if (!closed) break;
-    console.log(`  关闭弹窗: ${closed}`);
+    console.log(`  dismissed modal: ${closed}`);
     await sleep(700);
   }
 }
 
-// 上传文件并**轮询**到出现真实预览。
-// setInputFiles 是同步返回的，但平台侧上传是异步的：过早点提交会因为按钮仍 disabled
-// 而静默失败——这是最容易踩的坑。
+// Upload a file and **poll** until a real preview appears.
+// setInputFiles returns synchronously but the platform-side upload is async: submitting too early
+// fails silently while the button is still disabled — the most common trap there is.
 export async function uploadAndVerify(page, filePath, { selector = 'input[type="file"][accept*="image"]', timeout = 18000 } = {}) {
   const found = await page.waitForSelector(selector, { timeout: 5000 });
   if (!found) {
-    // 退一步：任何文件输入框
+    // Fall back to any file input
     const any = await page.count('input[type="file"]');
-    if (!any) { console.log('  ⚠ 未找到文件输入框'); return false; }
+    if (!any) { console.log('  ⚠ no file input found'); return false; }
     selector = 'input[type="file"]';
   }
   await page.setInputFiles(selector, [filePath]);
-  console.log('  已设置文件，轮询上传预览…');
+  console.log('  file set; polling for the upload preview…');
   const rounds = Math.ceil(timeout / 1500);
   for (let i = 0; i < rounds; i++) {
     await sleep(1500);
@@ -316,7 +321,8 @@ export async function uploadAndVerify(page, filePath, { selector = 'input[type="
       return {
         files: input ? input.files.length : -1,
         preview: previewImgs.length,
-        uploading: /上传中|uploading/i.test(txt),
+        // Chinese patterns match Chinese UIs; keep both.
+      uploading: /上传中|uploading/i.test(txt),
         done: /重新上传|已上传|上传成功/.test(txt),
       };
     }, selector);
@@ -326,19 +332,19 @@ export async function uploadAndVerify(page, filePath, { selector = 'input[type="
   return false;
 }
 
-// 整页滚动触发懒加载，必要时把 anchorText 滚入视口。
-// 由 Node 侧驱动（后台标签里页面内的 setInterval 会被节流到 ~1Hz，不能用）。
+// Scroll the whole page to trigger lazy loading, bringing anchorText into view when given.
+// Node-driven: an in-page setInterval would be throttled to ~1 Hz in a background tab.
 export async function scrollFull(page, anchorText, { step = 450, maxRounds = 80 } = {}) {
   let { h } = await page.scrollInfo();
   let y = 0;
   let rounds = 0;
   while (y < h && rounds < maxRounds) {
-    y += step + step * (Math.random() - 0.4); // 变速，避免机械的等距滚动
+    y += step + step * (Math.random() - 0.4); // vary the step so it is not mechanically even
     await page.scrollTo(Math.min(y, h));
     await sleep(120 + Math.random() * 180);
     rounds++;
     const info = await page.scrollInfo();
-    h = Math.max(h, info.h); // 懒加载会让文档变高
+    h = Math.max(h, info.h); // lazy loading makes the document taller
   }
   if (anchorText) {
     const found = await page.evaluate(t => {
@@ -348,30 +354,30 @@ export async function scrollFull(page, anchorText, { step = 450, maxRounds = 80 
       els[0].scrollIntoView({ block: 'center' });
       return true;
     }, anchorText);
-    if (!found) console.log(`  ⚠ 未找到锚点文本: ${anchorText}`);
+    if (!found) console.log(`  ⚠ anchor text not found: ${anchorText}`);
     await sleep(600);
   }
   return { rounds, height: h };
 }
 
-// 截图并报告体积与尺寸（整页默认开启）
+// Screenshot, then report size and dimensions (full page by default)
 export async function shot(page, filePath, { fullPage = true } = {}) {
   const buf = await page.screenshot({ path: filePath, fullPage });
   const w = buf.length > 24 ? buf.readUInt32BE(16) : 0;
   const h = buf.length > 24 ? buf.readUInt32BE(20) : 0;
-  console.log(`截图: ${filePath} (${(buf.length / 1024).toFixed(0)} KB, ${w}x${h})`);
+  console.log(`screenshot: ${filePath} (${(buf.length / 1024).toFixed(0)} KB, ${w}x${h})`);
   return filePath;
 }
 
-// 按可见文本点击，失败回退到 DOM 点击（绕过遮罩拦截真实指针）
+// Click by visible text, falling back to a DOM click (bypasses overlays intercepting pointers)
 export async function clickByText(page, text, { timeout = 8000 } = {}) {
   try {
     const ok = await page.clickText(text, { timeout });
     if (ok) return true;
   } catch (e) {
-    console.log(`  真实点击 "${text}" 失败: ${e.message}`);
+    console.log(`  real click on "${text}" failed: ${e.message}`);
   }
-  console.log(`  回退 DOM 点击 "${text}"`);
+  console.log(`  falling back to a DOM click on "${text}"`);
   return page.evaluate(t => {
     const els = Array.from(document.querySelectorAll('button, a, [role="button"]'));
     const el = els.find(x => (x.innerText || '').includes(t));
@@ -382,27 +388,27 @@ export async function clickByText(page, text, { timeout = 8000 } = {}) {
 }
 
 // ---------------------------------------------------------------------------
-// 人机交接 —— 双方都缺的能力
+// Human handoff — the capability almost nobody else has
 // ---------------------------------------------------------------------------
 
 export const HANDOFF_HINT =
-  '需要你手动操作：请在这个 Chrome 标签里完成（登录 / 验证码 / 扫码 / 支付确认等），' +
-  '完成后告诉我，我会继续。（agent 不会代填任何凭据）';
+  'Manual step needed: finish it in this Chrome tab (login / verification code / QR scan / ' +
+  'payment confirmation), then tell me and I will continue. The agent will not fill in credentials.';
 
 /**
- * 把控制权交给人，只观察、不动作。
+ * Hand control to the human and only observe.
  *
- * 硬约束（实现上必须保证）：
- *   · 轮询期间只做 evaluate 读取，绝不 click / 绝不导航 / 绝不 bringToFront
- *   · 不读取密码字段的值
- *   · 超时返回 ok:false，让上层明确中止，而不是带病往下跑
+ * Hard constraints that the implementation must keep:
+ *   · while polling, only read via evaluate — never click, never navigate, never steal focus
+ *   · never read the value of a password field
+ *   · return ok:false on timeout so the caller stops loudly instead of continuing broken
  *
  * @param {Page} page
  * @param {object} opts
- * @param {Function} [opts.signal]   返回 true 表示人已完成；缺省用「登录墙消失」判定
- * @param {number}  [opts.timeoutMs] 默认 15 分钟（去翻手机拿验证码很容易超过 1 分钟）
+ * @param {Function} [opts.signal]   returns true when the human is done; defaults to "login wall gone"
+ * @param {number}  [opts.timeoutMs] 15 minutes by default (fetching a code from a phone easily exceeds one)
  * @param {number}  [opts.pollMs]
- * @param {Function} [opts.onWait]   每次轮询回调，用于输出进度
+ * @param {Function} [opts.onWait]   called on each poll, for progress output
  */
 export async function waitForHuman(page, {
   signal,
@@ -422,7 +428,7 @@ export async function waitForHuman(page, {
     try { done = await check(); } catch { done = false; }
     if (done) {
       const waitedMs = Date.now() - started;
-      console.log(`  ▶ 检测到人工操作已完成（等待 ${(waitedMs / 1000).toFixed(0)}s），继续`);
+      console.log(`  ▶ human step finished (waited ${(waitedMs / 1000).toFixed(0)}s), resuming`);
       return { ok: true, waitedMs };
     }
     ticks++;
@@ -433,10 +439,10 @@ export async function waitForHuman(page, {
 }
 
 // ---------------------------------------------------------------------------
-// 反检测行为 —— 全部 Node 侧驱动（页面内定时器/动画帧在后台是死的）
+// Anti-detection behaviour — all Node-driven (in-page timers and rAF are dead in background tabs)
 // ---------------------------------------------------------------------------
 
-// 贝塞尔鼠标轨迹：从随机起点经控制点减速接近目标，最后做一次微调
+// Bezier pointer path: random start, decelerating approach via a control point, then a micro-adjustment
 export async function humanClickAt(page, x, y) {
   const sx = page._mx ?? x - 120 - Math.random() * 200;
   const sy = page._my ?? y - 80 - Math.random() * 120;
@@ -445,7 +451,7 @@ export async function humanClickAt(page, x, y) {
   const steps = 14 + Math.floor(Math.random() * 10);
   for (let i = 1; i <= steps; i++) {
     const t = i / steps;
-    const e = t * t * (3 - 2 * t); // smoothstep，模拟减速
+    const e = t * t * (3 - 2 * t); // smoothstep, simulating deceleration
     const px = (1 - e) * (1 - e) * sx + 2 * (1 - e) * e * cx + e * e * x;
     const py = (1 - e) * (1 - e) * sy + 2 * (1 - e) * e * cy + e * e * y;
     await page.conn.send('Input.dispatchMouseEvent', {
@@ -455,7 +461,7 @@ export async function humanClickAt(page, x, y) {
     }, page.targetRef);
     await sleep(8 + Math.random() * 22);
   }
-  await sleep(60 + Math.random() * 140);        // 落点前的迟疑
+  await sleep(60 + Math.random() * 140);        // hesitation before the press
   await core.clickAt(page.conn, page.targetRef, x, y);
   page._mx = x;
   page._my = y;
@@ -463,7 +469,7 @@ export async function humanClickAt(page, x, y) {
 
 export const humanClick = (page, selector) => page.click(selector, { human: true });
 
-// 变速滚动 + 随机停顿 + 偶尔回滚
+// Variable-speed scrolling with random pauses and occasional back-scrolls
 export async function humanScroll(page, { rounds = 6, minStep = 200, maxStep = 700 } = {}) {
   for (let i = 0; i < rounds; i++) {
     const dy = minStep + Math.random() * (maxStep - minStep);
@@ -476,7 +482,7 @@ export async function humanScroll(page, { rounds = 6, minStep = 200, maxStep = 7
   }
 }
 
-// 先像人一样浏览内容，再做互动
+// Skim the content the way a human would before interacting
 export async function preRead(page, { rounds = 5 } = {}) {
   const { vh } = await page.scrollInfo();
   for (let i = 0; i < rounds; i++) {

@@ -1,26 +1,26 @@
 #!/usr/bin/env node
-// cdp.mjs — 命令行前端。任何 agent（只要能跑 shell）都能直接驱动本技能，
-// 不必写 Node 脚本；需要复杂流程时改用 files/browser.mjs 的策略层。
+// cdp.mjs — command-line front-end. Any agent that can run a shell can drive this skill
+// without writing a Node script; for complex flows use the policy layer in files/browser.mjs.
 //
-//   cdp.mjs list                 列出可操作的标签（含 targetId）
-//   cdp.mjs info                 daemon / 浏览器状态
-//   cdp.mjs snap    <t>          无障碍树快照（省 token 看结构）
-//   cdp.mjs eval    <t> <expr>   在页面里执行 JS
-//   cdp.mjs html    <t> [sel]    整页或元素 HTML
-//   cdp.mjs shot    <t> [file]   截图（默认整页；--viewport 只截视口）
-//   cdp.mjs nav     <t> <url>    导航并等加载完成
-//   cdp.mjs net     <t>          资源加载耗时
-//   cdp.mjs click   <t> <sel>    按 CSS 选择器真实点击
-//   cdp.mjs clickxy <t> <x> <y>  按 CSS 像素坐标真实点击
-//   cdp.mjs type    <t> <text>   真实按键输入（有 keydown/keyup）
-//   cdp.mjs keys    <t> <key>    按一次特殊键（Enter/Escape/Tab…）
-//   cdp.mjs open    [url]        新建**后台**标签（不抢前台）
-//   cdp.mjs close   <t>          关闭标签
-//   cdp.mjs human   <t>          把控制权交给人，等人操作完成后返回
-//   cdp.mjs raw     <t> <method> [json]   原始 CDP 命令透传
+//   cdp.mjs list                 list operable tabs (with target ids)
+//   cdp.mjs info                 daemon / browser status
+//   cdp.mjs snap    <t>          accessibility-tree snapshot (token-cheap page structure)
+//   cdp.mjs eval    <t> <expr>   evaluate JS in the page
+//   cdp.mjs html    <t> [sel]    full page or element HTML
+//   cdp.mjs shot    <t> [file]   screenshot (full page by default; --viewport for viewport only)
+//   cdp.mjs nav     <t> <url>    navigate and wait for load
+//   cdp.mjs net     <t>          resource timing
+//   cdp.mjs click   <t> <sel>    real click by CSS selector
+//   cdp.mjs clickxy <t> <x> <y>  real click at CSS pixel coordinates
+//   cdp.mjs type    <t> <text>   real key input (with keydown/keyup)
+//   cdp.mjs keys    <t> <key>    press one special key (Enter/Escape/Tab…)
+//   cdp.mjs open    [url]        new **background** tab (never steals focus)
+//   cdp.mjs close   <t>          close a tab
+//   cdp.mjs human   <t>          hand over to the human, return when they are done
+//   cdp.mjs raw     <t> <method> [json]   raw CDP command passthrough
 //   cdp.mjs daemon  [status|stop|start]
 //
-// <t> 是 list 输出里 targetId 的**唯一前缀**。
+// <t> is a **unique prefix** of a target id printed by `cdp.mjs list`.
 
 import fs from 'node:fs';
 import { connectCDP, waitForHuman } from '../files/browser.mjs';
@@ -28,42 +28,42 @@ import { connectDaemon, SOCKET_PATH } from '../files/cdp-daemon.mjs';
 
 const [, , cmd, ...args] = process.argv;
 
-const USAGE = `cdp — 驱动你正在使用的 Chrome（后台操作，不抢前台）
+const USAGE = `cdp — drive the Chrome you are already using (background work, no focus stealing)
 
-用法: cdp <命令> [参数]
-  list                    列出标签
-  info                    daemon / 浏览器状态
-  snap    <t> [--full]    无障碍树快照
-  eval    <t> <expr>      执行 JS
-  html    <t> [sel]       取 HTML
-  shot    <t> [file] [--viewport]
+usage: cdp <command> [args]
+  list                    list tabs
+  info                    daemon / browser status
+  snap    <t> [--full]    accessibility-tree snapshot
+  eval    <t> <expr>      evaluate JS
+  html    <t> [sel]       get HTML
+  shot    <t> [file] [--viewport]   full-page (or viewport) screenshot
   nav     <t> <url>
-  net     <t>
-  click   <t> <sel>
-  clickxy <t> <x> <y>
-  type    <t> <text>
-  keys    <t> <key>
-  open    [url] [--foreground]
-  close   <t>
-  human   <t> [timeoutMs]
-  raw     <t> <method> [json]
+  net     <t>             resource timing
+  click   <t> <sel>       real click on a CSS selector
+  clickxy <t> <x> <y>     real click at CSS pixel coords
+  type    <t> <text>      real key events
+  keys    <t> <key>       press one special key (Enter/Escape/Tab…)
+  open    [url] [--foreground]   new BACKGROUND tab
+  close   <t>             close a tab
+  human   <t> [timeoutMs] hand over to the human and wait
+  raw     <t> <method> [json]    raw CDP passthrough
   daemon  [status|stop|start]
 
-<t> = list 输出中 targetId 的唯一前缀
-首次使用需在 Chrome 打开 chrome://inspect/#remote-debugging 并勾选授权。`;
+<t> = a unique prefix of a target id from 'cdp list' output
+First run: open chrome://inspect/#remote-debugging in Chrome and tick the authorisation box.`;
 
 function resolveTarget(targets, prefix) {
   const p = (prefix || '').toLowerCase();
-  if (!p) throw new Error('缺少 <target> 参数（先跑 cdp list）');
+  if (!p) throw new Error('missing <target> argument (run `cdp list` first)');
   const hits = targets.filter(t => t.targetId.toLowerCase().startsWith(p));
-  if (!hits.length) throw new Error(`找不到标签: ${prefix}（先跑 cdp list）`);
+  if (!hits.length) throw new Error(`tab not found: ${prefix} (run \`cdp list\` first)`);
   if (hits.length > 1) {
     const shortest = Math.max(...hits.map(h => {
       let n = 1;
       while (n < h.targetId.length && hits.filter(x => x.targetId.startsWith(h.targetId.slice(0, n))).length > 1) n++;
       return n;
     }));
-    throw new Error(`前缀有歧义: ${prefix} 命中 ${hits.length} 个标签，请至少给 ${shortest} 个字符`);
+    throw new Error(`ambiguous prefix: ${prefix} matches ${hits.length} tabs; give at least ${shortest} characters`);
   }
   return hits[0];
 }
@@ -78,33 +78,33 @@ async function main() {
     if (sub === 'stop') {
       const c = await connectDaemon({ autoStart: false, waitConnected: false });
       await c.stop();
-      console.log('daemon 已停止');
+      console.log('daemon stopped');
       return;
     }
     try {
       const wait = sub !== 'status';
       const c = await connectDaemon({ autoStart: wait, waitConnected: wait });
       const info = await c.info();
-      console.log(`daemon: 运行中  pid=${info.pid}`);
-      // 错误信息可能很长，这里只显示第一行，完整内容看 daemon.log
+      console.log(`daemon: running  pid=${info.pid}`);
+      // The error may be long; show only the first line here, full text is in daemon.log
       const errLine = info.error ? info.error.split('\n')[0] : null;
-      console.log(`Chrome 连接: ${info.connected ? '已建立 ✓' : '未建立 ✗'}` + (errLine ? `（${errLine}）` : ''));
-      console.log(`浏览器: ${info.browser}`);
-      console.log(`端点来源: ${info.source || '(未发现)'}`);
-      console.log(`已附加标签: ${info.sessions.length} 个`);
-      console.log(`空闲回收: ${(info.idleTtlMs / 3600000).toFixed(1)} 小时`);
+      console.log(`Chrome connection: ${info.connected ? 'established ✓' : 'NOT established ✗'}` + (errLine ? ` (${errLine})` : ''));
+      console.log(`browser: ${info.browser}`);
+      console.log(`endpoint source: ${info.source || '(not found)'}`);
+      console.log(`attached tabs: ${info.sessions.length}`);
+      console.log(`idle reaping: ${(info.idleTtlMs / 3600000).toFixed(1)} h`);
       console.log(`socket: ${SOCKET_PATH}`);
       if (!info.connected) {
-        console.log('\n连接未建立时请确认：');
-        console.log('  1) Chrome 已正常打开；');
-        console.log('  2) chrome://inspect/#remote-debugging 已勾选 Allow remote debugging for this browser instance；');
-        console.log('  3) 弹出「要允许远程调试吗？」时点了「允许」。');
+        console.log('\nWhen the connection is missing, check:');
+        console.log('  1) Chrome is open normally;');
+        console.log('  2) chrome://inspect/#remote-debugging has "Allow remote debugging for this browser instance" ticked;');
+        console.log('  3) you clicked Allow on the "Allow debugging?" prompt.');
         process.exitCode = 4;
       }
     } catch (e) {
-      console.log('daemon: 未运行');
+      console.log('daemon: not running');
       if (sub === 'status') {
-        console.log('  （用 cdp daemon start）');
+        console.log('  (use `cdp daemon start`)');
         process.exitCode = 4;
       } else throw e;
     }
@@ -115,7 +115,7 @@ async function main() {
 
   if (cmd === 'list' || cmd === 'ls') {
     const targets = await listTargets();
-    console.log(`共 ${targets.length} 个标签：`);
+    console.log(`${targets.length} tabs:`);
     targets.forEach((t, i) => console.log(fmtTarget(t, i)));
     return;
   }
@@ -128,8 +128,8 @@ async function main() {
     const url = args.find(a => !a.startsWith('--')) || 'about:blank';
     const foreground = args.includes('--foreground');
     const { targetId } = await client.newTarget(url, !foreground);
-    console.log(`${foreground ? '前台' : '后台'}新标签: ${targetId.slice(0, 8)}  ${url}`);
-    if (!foreground) console.log('（后台创建，不会打扰你正在看的页面）');
+    console.log(`${foreground ? 'foreground' : 'background'} tab: ${targetId.slice(0, 8)}  ${url}`);
+    if (!foreground) console.log('(created in the background; your current page is untouched)');
     return;
   }
 
@@ -158,7 +158,7 @@ async function main() {
         expression: sel ? `document.querySelector(${JSON.stringify(sel)})?.outerHTML` : 'document.documentElement.outerHTML',
         returnByValue: true,
       }, tId);
-      console.log(r.result?.value ?? '(未找到)');
+      console.log(r.result?.value ?? '(not found)');
       break;
     }
     case 'shot': {
@@ -170,14 +170,14 @@ async function main() {
       const buf = Buffer.from(r.data, 'base64');
       fs.writeFileSync(out, buf);
       const w = buf.readUInt32BE(16); const h = buf.readUInt32BE(20);
-      console.log(`${out}  ${(buf.length / 1024).toFixed(0)} KB  ${w}x${h}${fullPage ? ' (整页)' : ''}`);
-      console.log(`CSS 像素 = 图像像素 / ${await conn.send('Runtime.evaluate', { expression: 'devicePixelRatio', returnByValue: true }, tId).then(x => x.result.value)}`);
+      console.log(`${out}  ${(buf.length / 1024).toFixed(0)} KB  ${w}x${h}${fullPage ? ' (full page)' : ''}`);
+      console.log(`CSS px = image px / ${await conn.send('Runtime.evaluate', { expression: 'devicePixelRatio', returnByValue: true }, tId).then(x => x.result.value)}`);
       break;
     }
     case 'nav': {
       const { navigate } = await import('../files/cdp-core.mjs');
       const r = await navigate(conn, tId, rest[0]);
-      console.log(`已导航 readyState=${r.readyState}`);
+      console.log(`navigated, readyState=${r.readyState}`);
       break;
     }
     case 'net': {
@@ -190,13 +190,13 @@ async function main() {
     case 'click': {
       const { clickElement } = await import('../files/cdp-core.mjs');
       const ok = await clickElement(conn, tId, rest[0]);
-      console.log(ok ? `已点击 ${rest[0]}` : `未找到元素 ${rest[0]}`);
+      console.log(ok ? `clicked ${rest[0]}` : `element not found: ${rest[0]}`);
       break;
     }
     case 'clickxy': {
       const { clickAt } = await import('../files/cdp-core.mjs');
       await clickAt(conn, tId, Number(rest[0]), Number(rest[1]));
-      console.log(`已点击坐标 (${rest[0]}, ${rest[1]})`);
+      console.log(`clicked at (${rest[0]}, ${rest[1]})`);
       break;
     }
     case 'type': {
@@ -204,7 +204,7 @@ async function main() {
       const text = rest.join(' ');
       if (rest.includes('--fast')) await insertText(conn, tId, text);
       else await typeText(conn, tId, text);
-      console.log(`已输入 ${text.length} 个字符`);
+      console.log(`typed ${text.length} characters`);
       break;
     }
     case 'keys': {
@@ -216,12 +216,12 @@ async function main() {
       await conn.send('Input.dispatchKeyEvent', {
         type: 'keyUp', key, code: key, windowsVirtualKeyCode: codes[key] || 0,
       }, tId);
-      console.log(`已按下 ${key}`);
+      console.log(`pressed ${key}`);
       break;
     }
     case 'close': {
       await client.closeTarget(tId);
-      console.log(`已关闭 ${tId.slice(0, 8)}`);
+      console.log(`closed ${tId.slice(0, 8)}`);
       break;
     }
     case 'human': {
@@ -229,7 +229,7 @@ async function main() {
       const page = new Page(conn, tId);
       const timeoutMs = Number(rest[0] || 15 * 60 * 1000);
       const r = await waitForHuman(page, { timeoutMs });
-      console.log(r.ok ? '人已完成操作，可以继续' : `等待超时（${(r.waitedMs / 1000).toFixed(0)}s），请确认后重试`);
+      console.log(r.ok ? 'human step done; safe to continue' : `timed out after ${(r.waitedMs / 1000).toFixed(0)}s — confirm and retry`);
       if (!r.ok) process.exitCode = 3;
       break;
     }
@@ -245,8 +245,8 @@ async function main() {
       process.exitCode = 1;
   }
 
-  // CLI 是短命进程：每个请求都用独立 socket，无需清理，也不必停 daemon；
-  // daemon 与浏览器会继续存活，供后续命令复用这条已授权的长连接。
+  // The CLI is short-lived: every request uses its own socket, so there is nothing to clean up
+  // and the daemon must keep running so later commands reuse the authorised long connection.
 }
 
 main().catch(e => { console.error('✗ ' + e.message); process.exitCode = 1; });

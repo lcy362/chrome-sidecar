@@ -89,28 +89,31 @@ await cdp.send('Page.setWebLifecycleState', { state: 'active' }, sid);
 
 `npm test`（`scripts/selftest.mjs`）的真实输出——它在后台标签里驱动一个一次性的 `data:` URL 页面，不碰任何站点、不走网络：
 
-```
+工具输出是英文的（面向国际用户），下面是真实运行结果：
+
+```console
 $ npm test
-cdp-browser-automation selftest  (node v24.14.0 / darwin)
+chrome-sidecar selftest  (node v24.14.0 / darwin)
 
-== A. 离线检查 ==
-  ✓ parsePortFile 读出端口与 ws 路径  port=9333 path=/devtools/browser/abc-def
-  ✓ macOS 候选路径为 Google/Chrome（两层目录）
-  ✓ shuffle 不丢元素
-== B. 联机检查（后台标签，不抢前台）==
-  点赞 点击前: 13
-  点赞 点击后: 12
-  ⚠ 点赞 已开启被取消，补点恢复…
-  点赞 补点后: 13
-  ✓ ensureOn 恢复被误关的开关态
-  ✓ dismissModals 关掉遮罩弹窗
-  ✓ uploadAndVerify 轮询到真实预览
-  ✓ clickByText 命中按钮而不是外层容器
-  ✓ waitForHuman 检测到人工完成后继续
-  ✓ 临时标签已清理
-  ✓ 全程未抢用户前台标签  len=139 hash=f052a60e → len=139 hash=f052a60e
+== A. Offline checks ==
+  ✓ parsePortFile reads port and ws path  port=9333 path=/devtools/browser/abc-def
+  ✓ macOS candidate is Google/Chrome (two levels)
+  ✓ shuffle keeps every element
 
-=== selftest: 24/24 通过 ===
+== B. Online checks (background tab, no focus stealing) ==
+  Like before click: 13
+  Like after click: 12
+  ⚠ Like was on and got toggled off; clicking again…
+  Like after corrective click: 13
+  ✓ ensureOn restores a toggle that got switched off  final count=13 Like
+  ✓ dismissModals closes an overlay modal
+  ✓ uploadAndVerify polls until a real preview appears
+  ✓ clickByText hits the button, not the wrapping container
+  ✓ waitForHuman resumes once the human step is done
+  ✓ temporary tab cleaned up
+  ✓ the user foreground tab was never taken  len=139 hash=f052a60e → len=139 hash=f052a60e
+
+=== selftest: 24/24 passed ===
 ```
 
 上面 `ensureOn` 的那段才是重点：那个开关**本来就是开着的**，所以第一次点击把它关掉了，helper 发现计数下降后补点恢复。

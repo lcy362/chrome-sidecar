@@ -1,24 +1,24 @@
-// cdp-daemon.mjs — 常驻连接守护进程 + 客户端
+// cdp-daemon.mjs — persistent-connection daemon + client
 //
-// 为什么必须有 daemon：
-//   正常 Chrome（默认配置目录）的调试授权是**按连接**授予的——每建立一条新的
-//   CDP 连接，Chrome 就弹一次「要允许远程调试吗？」。如果每个脚本各自连一次，
-//   弹窗会反复出现。用一个常驻进程持有**唯一**长连接，授权就只在
-//   「每次 Chrome 启动后」发生一次。
+// Why a daemon is mandatory:
+//   Debugging authorisation on a normal Chrome (default profile) is granted **per connection** — every new
+//   CDP connection raises an "Allow debugging?" prompt. If each script connected on its own,
+//   the prompt would keep coming back. One resident process holding the **single** long-lived
+//   connection reduces it to once per Chrome start.
 //
-// 架构：CLI/库 → 本地 socket(NDJSON) → daemon → 唯一 WebSocket → Chrome
-//       （UNIX socket；Windows 走命名管道）
+// Architecture: CLI/library → local socket (NDJSON) → daemon → single WebSocket → Chrome
+//             (UNIX socket; a named pipe on Windows)
 //
-// 启动时序（关键）：**先把 socket 建起来，再去连 Chrome**。
-//   因为首次连接要等用户在 Chrome 里点「允许」，可能要等几十秒。
-//   若先连 Chrome 再建 socket，客户端会在这段时间里连不上、还看不出原因。
-//   现在客户端可以立刻连上，用 `info` 查询连接进度。
+// Start-up order (important): **bind the socket first, then connect to Chrome**.
+//   The first connection waits for the user to click Allow, which can take tens of seconds.
+//   Connecting to Chrome before binding leaves clients unable to reach us, with no clue why.
+//   Now clients connect immediately and can poll `info` for progress.
 //
-// 生命周期（三条退出路径）：
-//   · 空闲超过 IDLE_TTL_MS（默认 4 小时——要给人留出输密码/扫码的时间）
-//   · Chrome 侧连接断开（用户重启了 Chrome）
-//   · 显式 `cdp daemon stop` / SIGTERM / SIGINT
-// 另外：标签被关闭只清理会话注册表，不退出。
+// Lifecycle (three exit paths):
+//   · idle beyond IDLE_TTL_MS (4 h default — leave the human room for passwords and QR codes)
+//   · the Chrome side drops the connection (the user restarted Chrome)
+//   · an explicit `cdp daemon stop`, SIGTERM or SIGINT
+// Closing a tab only clears the session registry; it does not exit.
 
 import fs from 'node:fs';
 import net from 'node:net';
@@ -30,7 +30,7 @@ import { fileURLToPath } from 'node:url';
 import { CDP, resolvePort, listPages, attach, sleep } from './cdp-core.mjs';
 
 const RUNTIME_DIR = process.env.CDP_RUNTIME_DIR || path.join(os.homedir(), '.cache', 'cdp-browser-automation');
-// Windows 没有 UNIX socket，改用命名管道；管道名是机器全局的，所以要带用户名做隔离。
+// Windows has no UNIX sockets, so use a named pipe. Pipe names are machine-global, hence the user suffix.
 const SOCKET_PATH = process.platform === 'win32'
   ? `\\\\.\\pipe\\cdp-browser-automation-${String(process.env.USERNAME || 'default').replace(/[^\w.-]/g, '_')}`
   : path.join(RUNTIME_DIR, 'cdp.sock');
@@ -39,13 +39,13 @@ const LOG_PATH = path.join(RUNTIME_DIR, 'daemon.log');
 const IDLE_TTL_MS = Number(process.env.CDP_IDLE_TTL_MS || 4 * 60 * 60 * 1000);
 const CONNECT_RETRIES = Number(process.env.CDP_DAEMON_RETRIES || 40);
 const CONNECT_DELAY_MS = 150;
-// 首次连接要等用户点「允许远程调试」，给足 2 分钟
+// The first connection waits for the user to click Allow; give it a full two minutes
 const AUTH_TIMEOUT_MS = Number(process.env.CDP_AUTH_TIMEOUT_MS || 120000);
 
 export { SOCKET_PATH, RUNTIME_DIR, LOG_PATH };
 
 // ---------------------------------------------------------------------------
-// 客户端
+// Client
 // ---------------------------------------------------------------------------
 
 function requestOnce(payload, { timeout = 30000 } = {}) {
@@ -60,7 +60,7 @@ function requestOnce(payload, { timeout = 30000 } = {}) {
       sock.destroy();
       err ? reject(err) : resolve(val);
     };
-    const timer = setTimeout(() => finish(new Error('daemon 响应超时: ' + payload.op)), timeout);
+    const timer = setTimeout(() => finish(new Error('daemon response timeout: ' + payload.op)), timeout);
     sock.on('connect', () => sock.write(JSON.stringify(payload) + '\n'));
     sock.on('data', (d) => {
       buf += d.toString();
@@ -70,10 +70,10 @@ function requestOnce(payload, { timeout = 30000 } = {}) {
         const res = JSON.parse(buf.slice(0, nl));
         if (res.ok) finish(null, res.result);
         else finish(Object.assign(new Error(res.error), { op: payload.op }));
-      } catch (e) { finish(new Error('daemon 响应解析失败: ' + e.message)); }
+      } catch (e) { finish(new Error('failed to parse daemon response: ' + e.message)); }
     });
     sock.on('error', (e) => finish(e));
-    sock.on('end', () => { if (!settled && !buf.trim()) finish(new Error('daemon 提前关闭连接')); });
+    sock.on('end', () => { if (!settled && !buf.trim()) finish(new Error('daemon closed the connection early')); });
   });
 }
 
@@ -84,8 +84,8 @@ async function daemonAlive() {
 
 function spawnDaemon() {
   fs.mkdirSync(RUNTIME_DIR, { recursive: true, mode: 0o700 });
-  // 'w' 而不是 'a'：每次拉起新 daemon 都重写日志，
-  // 否则排障时会把上一轮的记录误读成本次的状态。
+  // 'w' rather than 'a': every new daemon rewrites the log,
+  // otherwise a stale run gets mistaken for the current one while debugging.
   const log = fs.openSync(LOG_PATH, 'w');
   const child = spawn(process.execPath, [fileURLToPath(import.meta.url), '--serve'], {
     detached: true,
@@ -99,19 +99,19 @@ function spawnDaemon() {
 function logTail(n = 20) {
   try {
     return fs.readFileSync(LOG_PATH, 'utf8').trim().split('\n').slice(-n).join('\n');
-  } catch { return '(无日志)'; }
+  } catch { return '(no log)'; }
 }
 
-// 拿到一个可用的 daemon 客户端；需要时自动拉起 daemon，并等到与 Chrome 建连成功。
+// Get a usable daemon client, starting the daemon if needed and waiting until Chrome is connected.
 export async function connectDaemon({ autoStart = true, verbose = false, waitConnected = true } = {}) {
   if (await daemonAlive()) {
-    if (verbose) console.log('[cdp] 复用已有 daemon');
+    if (verbose) console.log('[cdp] reusing existing daemon');
   } else {
-    if (!autoStart) throw new Error('daemon 未运行，且 autoStart=false');
-    // 清理可能残留的 socket，否则客户端会连到一个死端点
-    try { fs.unlinkSync(SOCKET_PATH); } catch { /* 不存在 */ }
+    if (!autoStart) throw new Error('daemon is not running and autoStart=false');
+    // Clear a possibly stale socket, or clients will connect to a dead endpoint
+    try { fs.unlinkSync(SOCKET_PATH); } catch { /* not present */ }
     const pid = spawnDaemon();
-    if (verbose) console.log(`[cdp] 已拉起 daemon (pid=${pid})，等待其监听…`);
+    if (verbose) console.log(`[cdp] started daemon (pid=${pid}), waiting for it to listen…`);
     let up = false;
     for (let i = 0; i < CONNECT_RETRIES; i++) {
       await sleep(CONNECT_DELAY_MS);
@@ -119,8 +119,8 @@ export async function connectDaemon({ autoStart = true, verbose = false, waitCon
     }
     if (!up) {
       throw new Error(
-        'daemon 启动失败（socket 未就绪）。\n' +
-        `--- daemon 日志尾部 ---\n${logTail()}`
+        'daemon failed to start (socket not ready).\n' +
+        `--- daemon log tail ---\n${logTail()}`
       );
     }
   }
@@ -137,7 +137,7 @@ export async function connectDaemon({ autoStart = true, verbose = false, waitCon
   };
   if (!waitConnected) return client;
 
-  // 等 daemon 与 Chrome 建连。首次会弹「要允许远程调试吗？」，需要人工点「允许」。
+  // Wait until the daemon is connected to Chrome. The first time a human must click Allow.
   const deadline = Date.now() + AUTH_TIMEOUT_MS;
   let info = null;
   let announced = false;
@@ -145,37 +145,37 @@ export async function connectDaemon({ autoStart = true, verbose = false, waitCon
     try { info = await requestOnce({ op: 'info' }, { timeout: 5000 }); } catch { info = null; }
     if (info?.connected) break;
     if (!announced) {
-      console.log('⏳ 正在连接 Chrome… 若 Chrome 弹出了「要允许远程调试吗？」，请点「允许」。');
-      console.log('   （若还没授权：地址栏打开 chrome://inspect/#remote-debugging，勾选 Allow remote debugging for this browser instance）');
+      console.log('⏳ Connecting to Chrome… if Chrome shows "Allow debugging?", click Allow.');
+      console.log('   (If not authorised yet: open chrome://inspect/#remote-debugging and tick "Allow remote debugging for this browser instance")');
       announced = true;
     }
     await sleep(1000);
   }
   if (!info?.connected) {
     throw new Error(
-      '未能连接 Chrome（等了 ' + Math.round(AUTH_TIMEOUT_MS / 1000) + 's）。\n' +
-      (info?.error ? '原因: ' + info.error + '\n' : '') +
-      '请依次确认：\n' +
-      '  1) Chrome 已正常打开（不是别的浏览器）；\n' +
-      '  2) 地址栏打开 chrome://inspect/#remote-debugging 并勾选\n' +
-      '     "Allow remote debugging for this browser instance"；\n' +
-      '  3) 出现「要允许远程调试吗？」时点了「允许」。\n' +
-      `--- daemon 日志尾部 ---\n${logTail()}`
+      'Could not connect to Chrome (waited ' + Math.round(AUTH_TIMEOUT_MS / 1000) + 's).\n' +
+      (info?.error ? 'Reason: ' + info.error + '\n' : '') +
+      'Please check, in order:\n' +
+      '  1) Chrome is open normally (and it really is Chrome);\n' +
+      '  2) chrome://inspect/#remote-debugging is open, with\n' +
+      '     "Allow remote debugging for this browser instance" ticked;\n' +
+      '  3) you clicked Allow when the "Allow debugging?" prompt appeared.\n' +
+      `--- daemon log tail ---\n${logTail()}`
     );
   }
-  if (verbose) console.log(`[cdp] 已连接 ${info.browser}`);
+  if (verbose) console.log(`[cdp] connected to ${info.browser}`);
 
   return client;
 }
 
 // ---------------------------------------------------------------------------
-// 服务端（--serve）
+// Server (--serve)
 // ---------------------------------------------------------------------------
 
 async function serve() {
   if (process.platform !== 'win32') process.umask(0o077);
   fs.mkdirSync(RUNTIME_DIR, { recursive: true, mode: 0o700 });
-  try { fs.unlinkSync(SOCKET_PATH); } catch { /* 不存在 */ }
+  try { fs.unlinkSync(SOCKET_PATH); } catch { /* not present */ }
 
   let endpoint = null;
   let cdp = null;
@@ -213,9 +213,9 @@ async function serve() {
     } catch { /* ignore */ }
   };
 
-  // 后台连接 Chrome，不阻塞 socket 就绪。带退避重试以覆盖两种情况：
-  //   · 端口文件还没出现（用户还没勾选开关）
-  //   · 握手挂起在等用户点「允许」
+  // Connect to Chrome in the background without blocking socket readiness. Backoff retries cover:
+  //   · the port file does not exist yet (the toggle is not ticked)
+  //   · the handshake is pending while the user decides on the Allow prompt
   const connectPromise = (async () => {
     const deadline = Date.now() + AUTH_TIMEOUT_MS;
     let attempt = 0;
@@ -225,24 +225,24 @@ async function serve() {
       let c = null;
       try {
         if (!endpoint) endpoint = resolvePort({ verbose: true });
-        if (!endpoint.wsUrl) throw new Error('DevToolsActivePort 里没有 WebSocket 路径');
+        if (!endpoint.wsUrl) throw new Error('DevToolsActivePort has no WebSocket path');
         c = await CDP.connect(endpoint.wsUrl, { timeoutMs: Math.max(20000, deadline - Date.now()) });
         const { product } = await c.send('Browser.getVersion').catch(() => ({ product: 'unknown' }));
         cdp = c;
         browserVersion = product;
-        c.onClose(() => shutdown(0));                 // 用户重启了 Chrome
+        c.onClose(() => shutdown(0));                 // the user restarted Chrome
         c.onEvent('Target.detachedFromTarget', (p) => {
           for (const [tid, sid] of sessions) if (sid === p.sessionId) sessions.delete(tid);
         });
         c.onEvent('Target.targetDestroyed', (p) => sessions.delete(p.targetId));
-        console.error(`[daemon] 已连接 ${product} @ ${endpoint.source}`);
+        console.error(`[daemon] connected to ${product} @ ${endpoint.source}`);
         writeState();
         return true;
       } catch (e) {
         if (c) { try { c.close(); } catch { /* ignore */ } }
         connError = e;
-        console.error(`[daemon] 连接 Chrome 失败(第 ${attempt} 次): ${e.message}`);
-        endpoint = null;                              // 端口可能变了，下一轮重新探测
+        console.error(`[daemon] Chrome connect failed (attempt ${attempt}): ${e.message}`);
+        endpoint = null;                              // the port may have changed; re-discover next round
         await sleep(Math.min(backoff, 15000));
         backoff *= 2;
       }
@@ -250,21 +250,21 @@ async function serve() {
     return false;
   })();
 
-  // 连接始终失败就不要留着一个永远不可用的 daemon：
-  // 直接退出，让下一次命令重新走一遍完整流程。
+  // If the connection never succeeds, do not leave a permanently unusable daemon behind:
+  // exit instead, so the next command runs the whole flow from scratch.
   connectPromise.then((ok) => {
     if (!ok) {
-      console.error('[daemon] 连接 Chrome 始终失败，退出');
+      console.error('[daemon] Chrome connection never succeeded; exiting');
       shutdown(1);
     }
   });
 
-  // 任何依赖 Chrome 的操作，先等连接就绪（含等待用户授权）
+  // Any operation that needs Chrome waits for the connection first (including authorisation)
   const needCdp = async () => {
     if (cdp) return cdp;
     const ok = await connectPromise;
     if (!ok || !cdp) {
-      throw new Error('尚未连接 Chrome' + (connError ? '：' + connError.message : ''));
+      throw new Error('Chrome is not connected yet' + (connError ? ': ' + connError.message : ''));
     }
     return cdp;
   };
@@ -275,14 +275,14 @@ async function serve() {
     const sid = await attach(conn, targetId);
     sessions.set(targetId, sid);
 
-    // 「伪聚焦 + 页面激活」：把一个**后台**标签恢复到前台级响应能力。
-    // 实测（Chrome 154 / macOS）：
-    //   setInterval(16ms)  2 次/秒 → 62 次/秒
-    //   requestAnimationFrame  0 次/秒 → 61 次/秒
-    //   Input.dispatchMouseEvent ack  超时(>5s) → 8~18ms（不激活时 ack 会被无限期拖住）
-    // 关键是它**不会**把标签切到前台：用 AppleScript 读 Chrome 活动标签指纹验证，
-    // 操作前后与静置 25 秒后均未变化。
-    // 设 CDP_NO_ACTIVATE=1 可关闭（例如某站点被伪可见状态影响了行为）。
+    // "Focus emulation + page activation": bring a **background** tab back to foreground-grade responsiveness.
+    // Measured on Chrome 154 / macOS:
+    //   setInterval(16ms)    2 ticks/s → 62 ticks/s
+    //   requestAnimationFrame 0 callbacks/s → 61 callbacks/s
+    //   Input.dispatchMouseEvent ack  stalled (>5s) → 8-18ms (unactivated acks are deferred indefinitely)
+    // Crucially it does **not** bring the tab forward: verified against Chrome's active-tab fingerprint,
+    // unchanged before and after the operation and after 25 s of idling.
+    // Set CDP_NO_ACTIVATE=1 to disable (e.g. a site behaves differently when it believes it is visible).
     if (process.env.CDP_NO_ACTIVATE !== '1') {
       await conn.send('Page.enable', {}, sid).catch(() => {});
       await conn.send('Emulation.setFocusEmulationEnabled', { enabled: true }, sid).catch(() => {});
@@ -295,7 +295,7 @@ async function serve() {
   process.on('SIGINT', () => shutdown(0));
 
   const handle = async (req) => {
-    // 这两个操作不依赖 Chrome，用于在授权等待期间查询进度
+    // These two do not need Chrome, so progress can be polled while waiting for authorisation
     if (req.op === 'ping') return { pong: true, pid: process.pid, connected: !!cdp };
     if (req.op === 'info') {
       return {
@@ -332,7 +332,7 @@ async function serve() {
       case 'closeTarget':
         return conn.send('Target.closeTarget', { targetId: req.targetId });
       default:
-        throw new Error('未知操作: ' + req.op);
+        throw new Error('Unknown op: ' + req.op);
     }
   };
 
@@ -352,12 +352,12 @@ async function serve() {
         conn.end(JSON.stringify({ ok: false, error: e.message }) + '\n');
       }
     });
-    conn.on('error', () => { /* 客户端提前断开，忽略 */ });
+    conn.on('error', () => { /* client disconnected early; ignore */ });
   });
 
   server.on('error', (e) => { console.error('[daemon] server error:', e.message); shutdown(1); });
   server.listen(SOCKET_PATH, () => {
-    // 命名管道没有文件权限可设；UNIX socket 收紧到 0600
+    // A named pipe has no file permissions to set; tighten the UNIX socket to 0600
     if (process.platform !== 'win32') fs.chmodSync(SOCKET_PATH, 0o600);
     writeState();
     console.error('[daemon] listening on ' + SOCKET_PATH);
