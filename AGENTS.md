@@ -219,6 +219,7 @@ expected to change **together** — editing one alone is a half-finished change:
 | GitHub **topics** | `chrome-skill`, `chrome-automation`, `chrome-devtools-protocol`, `agent-skill`, `agent-skills`, `claude-skill`, `browser-automation`, … |
 | `README.md` / `README.zh-CN.md` | the phrase in the opening paragraph **and** in the `## What is a "Chrome skill"?` heading, plus the alias sentence (Chrome CDP skill, Claude Chrome skill, browser-automation skill) |
 | `package.json` | same terms in `description` and `keywords`, ASCII-hyphenated |
+| `skills/chrome-sidecar/SKILL.md` | the phrase in the one-line positioning under the title — this is the surface GitHub **code** search indexes when someone looks for a `SKILL.md` skill |
 
 Also: the commented JSON-LD block at the top of `README.md` mirrors the About description — update it
 in the same commit.

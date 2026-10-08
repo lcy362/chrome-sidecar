@@ -7,6 +7,9 @@ description_zh: 通过 Chrome DevTools Protocol 驱动用户**正在使用的正
 
 # chrome-sidecar
 
+*A Chrome skill for AI agents: operate the user's real Chrome — in background tabs, with real input
+events, and with a handoff when a credential is required.*
+
 ## What it does
 
 Drives **the Chrome the user is already using**: same window, same profile directory, same
