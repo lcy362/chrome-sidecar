@@ -188,9 +188,17 @@ async function main() {
       break;
     }
     case 'click': {
-      const { clickElement } = await import('../files/cdp-core.mjs');
-      const ok = await clickElement(conn, tId, rest[0]);
-      console.log(ok ? `clicked ${rest[0]}` : `element not found: ${rest[0]}`);
+      // Route through the library so both front-ends behave identically:
+      // wait for the element, real Input click, DOM fallback if the ack stalls.
+      const { Page } = await import('../files/browser.mjs');
+      const page = new Page(conn, tId);
+      try {
+        await page.click(rest[0]);
+        console.log(`clicked ${rest[0]}`);
+      } catch (e) {
+        console.log(`click failed: ${e.message}`);
+        process.exitCode = 1;
+      }
       break;
     }
     case 'clickxy': {

@@ -271,13 +271,6 @@ export async function clickAt(cdp, sid, x, y, { button = 'left', clickCount = 1 
   await cdp.send('Input.dispatchMouseEvent', { ...base, type: 'mouseReleased', buttons: 0 }, sid);
 }
 
-// One real click on an element. Returns false (no throw) when the element is missing.
-export async function clickElement(cdp, sid, selector, opts) {
-  const c = await elementCenter(cdp, sid, selector);
-  if (!c) return false;
-  await clickAt(cdp, sid, c.x, c.y, opts);
-  return true;
-}
 
 // Dispatch real key events character by character (closer to a human; insertText emits no keydown).
 export async function typeText(cdp, sid, text, { delay = 40 } = {}) {
