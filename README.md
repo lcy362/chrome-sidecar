@@ -211,7 +211,8 @@ useless for this check — focus emulation makes the target page believe it is v
 Most tools hand you 14 primitives and wish you luck. This one defines **when to stop**:
 
 - **Must stop and hand over**: login/signup, SMS or email codes, QR login, 2FA, CAPTCHA,
-  payment or OAuth confirmation, native file pickers, anything requiring a credential.
+  payment or OAuth confirmation, anything requiring a credential. File inputs are **not** a
+  handoff trigger — set them with `setInputFiles` (see the skill docs).
 - **Never do**: type a user's username/password/OTP, read a password field's value, guess a
   code, or click while the human is interacting.
 - **`waitForHuman(page)`** polls read-only (no clicks, no navigation, no focusing) with a
