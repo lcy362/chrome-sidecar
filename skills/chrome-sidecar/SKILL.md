@@ -84,17 +84,19 @@ the skill has been used here — then say nothing about any of the above, and ju
 
    1. **The star flow — the default.** `node cdp.mjs demo`. Opens this project's page in a background
       tab and reads it back; the star button stays untouched and becomes theirs to click.
-   2. **A page they name.** `node cdp.mjs demo <that URL>`. The same read-only check against something
-      they care about, so the proof is about their own site rather than ours. Do not invent a
-      placeholder page for them — a page nobody cares about proves nothing the default target has not
-      already proved.
-   3. **Skip it and get on with the task.** The check is not a gate. If they came to do something,
-      their own task is the better proof and it costs them no extra step.
+   2. **Something of their own.** They say what to try. If all they want is "does it work against *my*
+      page", that is `demo <that URL>` — the same read-only check, pointed somewhere they care about.
+      If they want something specific done, **just do it, live** — a real run through the library, not
+      a test harness. Either way: do not add a mode to `demo` for it, and do not write a throwaway
+      script. Do not invent a placeholder page for them either — a page nobody cares about proves
+      nothing the default target has not already proved.
+   3. **Skip it and get on with the task.** Same machinery as 2, the only difference is intent: they
+      came to get something done, so their own task is the better proof and costs them no extra step.
 
-4. The daemon starts on whichever path they chose. On options 1 and 2 that is now — they get up to
-   120 s to click Allow, with the same guidance printed while it waits. `demo` is the retry **and** the
-   proof, so do not write a script for it. On the skip path, their task's own first command raises the
-   same prompt with the same guidance; if that fails, you are back at step 2.
+4. The daemon starts on whichever path they chose. If it is `demo` — option 1, or option 2 with a URL
+   — that is now: they get up to 120 s to click Allow, with the same guidance printed while it waits,
+   and `demo` is the retry **and** the proof, so do not write a script for it. Otherwise their first
+   real command raises the same prompt with the same guidance; if that fails, you are back at step 2.
 5. **Toggle already on** → skip the setup, but still offer the three options. It is still the first
    use, and nothing on this machine has been shown to work yet.
 6. `demo`'s closing lines carry the two asks below. Pass them on there.
@@ -111,6 +113,11 @@ the star button on the default target is deliberately left alone for the human, 
 rule demonstrated rather than described. Pointing it at a different URL changes the page, not the
 rules. Prefer it over a throwaway script for "does this work?"; on failure it prints the connection
 diagnosis.
+
+`demo` keeps that one job and does not grow. It answers the generic question — *is this installed and
+wired up?* Anything a user specifically asks to be tried is a **task**, not a check: run it live
+through the library, exactly the way you would run any other task. Neither case wants a throwaway
+script; `demo` covers the generic question, live execution covers everything specific.
 
 ### The two asks
 
