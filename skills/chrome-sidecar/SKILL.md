@@ -218,12 +218,12 @@ handoff is wrong: it is a normal form field, not a credential.
 - **Click the upload zone first.** Enable `Page.setInterceptFileChooserDialog({enabled:true})`
   (so no native dialog appears), then click the real drop-zone / "upload" control, and *then*
   inject the file. Many SPAs only accept a file once their own picker handler has run; injecting
-  straight into the input skips that state and the app reports "upload failed" — **this alone was
-  the difference between failure and success on Mergeek (2026-10)**.
+  straight into the input skips that state and the app reports "upload failed". On that class of
+  form this one step is the difference between failure and success.
 - Prefer `setInputFiles(selector, [paths])` (wraps `DOM.setFileInputFiles`).
 - When several inputs share one selector, index them: `DOM.querySelectorAll` → choose by
-  position (icon first, gallery second, …) → `DOM.setFileInputFiles` with that `nodeId`; when the
-  zone was clicked, prefer the input **inside that zone's own subtree**.
+  position (the first slot, then the second, …) → `DOM.setFileInputFiles` with that `nodeId`; when
+  the zone was clicked, prefer the input **inside that zone's own subtree**.
 - Verify the upload by a **server-side artifact** (a returned `https://cdn…` URL) or by the form's
   own validation clearing — **never by "a `blob:` preview appeared"**. `URL.createObjectURL`
   only proves the page *read* the file, not that the app accepted it.
@@ -231,12 +231,12 @@ handoff is wrong: it is a normal form field, not a credential.
   blocker — stop retrying and hand over **with the exact file paths** (that is a real handoff:
   the app refuses automation, not a credential wall).
 
-Field-tested (2026-10): classic server-rendered forms (Rails / Homeland, PHP) accept
-`DOM.setFileInputFiles` outright. Among SPAs, **click-first + intercept succeeded on Mergeek
-(icon + gallery, confirmed by served `cdn-image…` URLs)** and **failed on Solo's cover and
-新趣集's avatar** (blob preview only / no effect) — so click-first is the first thing to try, not
-a guarantee. Solo's cover eventually landed once the flow was sequenced as
-fill-fields → story → chips → click zone → inject.
+Two classes of form behave differently, and it is worth telling them apart before concluding the
+upload failed: classic server-rendered forms (Rails, PHP) accept `DOM.setFileInputFiles` outright,
+while SPAs frequently create a local preview and then drop the file. On the SPA class, click-first
+plus intercept is the first thing to try but not a guarantee — and the order of the surrounding
+steps matters as much as the upload itself, so let the app's own handlers run in their natural
+sequence instead of injecting at the end.
 
 ### Never do
 
