@@ -181,7 +181,8 @@ subsequent read comes back empty. (Hit for real: right after `open`, the first p
 
 **Fix:** decide navigation success on whether `location.href` is the target URL, not on
 `readyState`. `navigate()` / `goto()` poll `readyState` internally, so still re-check
-`page.url()` after calling them.
+`page.url()` after calling them. `page.waitForUrl(part)` (library) does both in one call and
+returns the href, or `null` on timeout.
 
 ## 16. Modern React/MUI dashboards need an explicit trigger
 

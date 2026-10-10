@@ -150,7 +150,8 @@ AGENTS.md            this file
   `net`), and primitives are the commodity layer that every CDP tool has. Leading the README with
   them invites the "just another CDP CLI" comparison and buries what is actually different:
   background operation, the handoff protocol, and the policy helpers. Show `open` (background tab,
-  current page untouched), `human`, and `daemon status` instead — those carry the positioning.
+  current page untouched), `demo` (the install check — it *demonstrates* the handoff by refusing to
+  click), `human`, and `daemon status` instead — those carry the positioning.
 - Keep the **full command surface in `SKILL.md`** (the runtime agent needs it) and only a pointer
   in `README.md`.
 - **Parity with the library** — see invariant 2.4. `cdp click` originally called the raw primitive

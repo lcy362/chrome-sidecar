@@ -50,6 +50,23 @@ port on someone's real browser to read a public page.
   Playwright.
 - Details and troubleshooting: `references/connect.md`.
 
+## Checking the install
+
+When the user has just installed this skill, or when something "does not seem to work", run this
+before anything else — it is also what you should offer them:
+
+```bash
+cd <skill>/scripts && node cdp.mjs demo
+```
+
+It is a **read-only** end-to-end check: it opens this project's page in a new **background tab**,
+reads the title and the star count back over CDP, takes a viewport screenshot, and prints what it
+did at each step. It clicks nothing and types nothing. The star button is deliberately left alone
+for the human — the handoff rule, demonstrated rather than described.
+
+Prefer it over writing a throwaway script to answer "does this work?". On failure it prints the
+connection diagnosis; `node cdp.mjs daemon status` is the short form of the same thing.
+
 ## How to drive it
 
 Prefer the **library**: it carries the task-level helpers that make a flow actually finish. Use the
@@ -60,7 +77,7 @@ Prefer the **library**: it carries the task-level helpers that make a flow actua
 ```js
 import {
   connectCDP, ensureOn, dismissModals, uploadAndVerify,
-  scrollFull, shot, clickByText, waitForHuman, randWait,
+  scrollFull, shot, clickByText, waitForHuman, randWait, verifyInstall,
 } from './files/browser.mjs';
 
 const { findPage, openPage, newPage } = await connectCDP();
@@ -73,6 +90,7 @@ const app = (await findPage('example.com')) || await newPage('https://example.co
 cd <skill>/scripts
 node cdp.mjs open  "https://example.com"   # new BACKGROUND tab; the current page is untouched
 node cdp.mjs human <t>                     # hand over to the human, wait, resume
+node cdp.mjs demo                          # verify this install (read-only; see above)
 node cdp.mjs daemon status
 node cdp.mjs list | snap <t> | eval <t> …  # primitives, for poking at a live page
 ```
@@ -233,11 +251,11 @@ Read `references/pitfalls.md` before any non-trivial flow. The most common failu
 
 | File | Role |
 |---|---|
-| `scripts/cdp.mjs` | CLI front-end: list / snap / eval / shot / click / type / open / human / daemon |
+| `scripts/cdp.mjs` | CLI front-end: list / snap / eval / shot / click / type / open / human / demo / daemon |
 | `scripts/selftest.mjs` | Offline + online self-test (drives a `data:` URL page in a background tab) |
 | `files/cdp-core.mjs` | Endpoint discovery + raw CDP primitives (zero-dependency) |
 | `files/cdp-daemon.mjs` | Persistent daemon: single long-lived connection, auto-start, tab activation |
-| `files/browser.mjs` | Policy layer: `Page` wrapper + task helpers + handoff + anti-detection |
+| `files/browser.mjs` | Policy layer: `Page` wrapper + task helpers + handoff + install check + anti-detection |
 | `references/connect.md` | Enabling CDP on your normal Chrome, authorisation semantics, troubleshooting |
 | `references/pitfalls.md` | Field-tested pitfalls, with measured numbers |
 | `references/anti-detection.md` | Signal-by-signal comparison and the Node-side implementation |

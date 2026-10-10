@@ -17,13 +17,14 @@
 //   cdp.mjs open    [url]        new **background** tab (never steals focus)
 //   cdp.mjs close   <t>          close a tab
 //   cdp.mjs human   <t>          hand over to the human, return when they are done
+//   cdp.mjs demo    [file.png]   verify this install; opens the project page and clicks nothing
 //   cdp.mjs raw     <t> <method> [json]   raw CDP command passthrough
 //   cdp.mjs daemon  [status|stop|start]
 //
 // <t> is a **unique prefix** of a target id printed by `cdp.mjs list`.
 
 import fs from 'node:fs';
-import { connectCDP, waitForHuman } from '../files/browser.mjs';
+import { connectCDP, waitForHuman, verifyInstall } from '../files/browser.mjs';
 import { connectDaemon, SOCKET_PATH } from '../files/cdp-daemon.mjs';
 
 const [, , cmd, ...args] = process.argv;
@@ -46,6 +47,8 @@ usage: cdp <command> [args]
   open    [url] [--foreground]   new BACKGROUND tab
   close   <t>             close a tab
   human   <t> [timeoutMs] hand over to the human and wait
+  demo    [file.png]      verify this install: opens the project page in a background tab,
+                          reads it and screenshots it — and clicks nothing
   raw     <t> <method> [json]    raw CDP passthrough
   daemon  [status|stop|start]
 
@@ -107,6 +110,20 @@ async function main() {
         console.log('  (use `cdp daemon start`)');
         process.exitCode = 4;
       } else throw e;
+    }
+    return;
+  }
+
+  // The install check manages its own connection (it opens a page), so it runs before the shared
+  // connect below. It is the one command a human runs by hand right after installing.
+  if (cmd === 'demo') {
+    try {
+      await verifyInstall({ shotPath: args.find(a => !a.startsWith('--')) });
+    } catch (e) {
+      // Connection failures already print a full checklist from connectDaemon; do not repeat it.
+      console.error('✗ ' + e.message);
+      console.log('  (run `cdp daemon status` for the short version of this diagnosis)');
+      process.exitCode = 4;
     }
     return;
   }

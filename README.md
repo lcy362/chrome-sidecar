@@ -137,9 +137,23 @@ Doing it by hand instead? Same clone, then copy it yourself:
 cp -R chrome-sidecar/skills/chrome-sidecar ~/.claude/skills/     # or your agent's skills dir
 ```
 
-**3. Ask your agent for something**
+**3. Check that it works**
 
-There is nothing to launch. Ask for something small first, so you can watch how it behaves:
+There is nothing to launch. The skill ships a read-only install check — run it once:
+
+```bash
+cd chrome-sidecar/skills/chrome-sidecar/scripts && node cdp.mjs demo
+```
+
+It opens this repository in a **background tab**, reads the page and screenshots it, and prints what
+it did at each step. Watch your own tab while it runs: it should not move.
+
+**It deliberately does not click the star button.** That one is yours to click, and leaving it
+alone is the whole point — the skill stops at the boundary instead of acting on your behalf.
+
+**4. Ask your agent for something**
+
+Now give it something small, so you can watch how it behaves:
 
 > Open example.com and tell me the page title.
 
@@ -265,9 +279,11 @@ This tool drives a session that can read everything you are logged into. Treat i
 
 ## Demo
 
-`npm test` (`scripts/selftest.mjs`) drives a throwaway `data:` URL page in a background tab — no
-site, no network. The full run, and the external evidence behind the "never steals your focus"
-claim, are in **[docs/demo.md](docs/demo.md)**. The assertion that matters:
+For the 10-second version, run `node cdp.mjs demo` — the read-only install check from step 3.
+
+The full self-test is `npm test` (`scripts/selftest.mjs`). It drives a throwaway `data:` URL page in
+a background tab — no site, no network. The full run, and the external evidence behind the "never
+steals your focus" claim, are in **[docs/demo.md](docs/demo.md)**. The assertion that matters:
 
 ```console
   ✓ the user foreground tab was never taken  len=139 hash=f052a60e → len=139 hash=f052a60e

@@ -79,9 +79,21 @@ npx flint-skills-hub      # 或：npm install -g flint-skills-hub && flint
 cp -R chrome-sidecar/skills/chrome-sidecar ~/.claude/skills/     # 或你所用 agent 的 skills 目录
 ```
 
-**3. 让 agent 去做一件事**
+**3. 验证装好了**
 
-没有东西需要你启动。先提个小请求，好观察它的行为：
+没有东西需要你启动。技能自带一个只读的安装自检，装完跑一次：
+
+```bash
+cd chrome-sidecar/skills/chrome-sidecar/scripts && node cdp.mjs demo
+```
+
+它会在**后台标签**里打开本仓库地址，读回页面内容并截图，逐步打印自己做了什么。跑的时候盯着你自己的标签——它不应该移动。
+
+**它刻意不去点 star 按钮。** 那一下留给你自己点，而这正是全部设计的要点——技能在边界处停下，而不是替你做主。
+
+**4. 让 agent 去做一件事**
+
+现在提个小请求，好观察它的行为：
 
 > 打开 example.com，告诉我页面标题。
 
@@ -178,7 +190,9 @@ await cdp.send('Page.setWebLifecycleState', { state: 'active' }, sid);
 
 ## 演示
 
-`npm test`（`scripts/selftest.mjs`）在后台标签里驱动一个一次性的 `data:` URL 页面——不碰任何站点、不走网络。完整运行结果，以及"从不抢前台"这一说法的外部证据，都在 **[docs/demo.md](docs/demo.md)**。最关键是这一行断言：
+想要 10 秒版就运行 `node cdp.mjs demo`——就是第 3 步那个只读安装自检。
+
+完整自测是 `npm test`（`scripts/selftest.mjs`）：在后台标签里驱动一个一次性的 `data:` URL 页面——不碰任何站点、不走网络。完整运行结果，以及"从不抢前台"这一说法的外部证据，都在 **[docs/demo.md](docs/demo.md)**。最关键是这一行断言：
 
 ```console
   ✓ the user foreground tab was never taken  len=139 hash=f052a60e → len=139 hash=f052a60e

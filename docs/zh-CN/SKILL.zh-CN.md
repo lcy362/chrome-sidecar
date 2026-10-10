@@ -29,6 +29,18 @@ description_zh: 通用 CDP 浏览器自动化技能 v2。零依赖（Node 22+ �
 - Node.js **22+**（用到内置 `WebSocket`）。**零依赖**，不需要 npm install，不需要 Playwright。
 - 细节与故障排查见 `references/connect.md`。
 
+## 验证安装
+
+用户刚装好这个技能、或"感觉不太对"时，先跑这个（也是应该主动让对方跑的那个）：
+
+```bash
+cd <skill>/scripts && node cdp.mjs demo
+```
+
+它是一个**只读**的端到端自检：在**后台标签**里打开本项目地址，经 CDP 读回标题与 star 数、截一张视口图，并逐步打印自己做了什么。它不点击任何东西、不输入任何东西——star 按钮刻意留给人去点，这就是把交接规则**演示**出来，而不是写在文档里。
+
+能回答"这样到底通不通"的问题时优先用它，不要再写一次性脚本。失败时它会打印连接诊断；`node cdp.mjs daemon status` 是同一诊断的简版。
+
 ## 两种用法
 
 ### 用法 A：CLI（只跑 shell 就能驱动，适合一条条下命令）
@@ -42,6 +54,7 @@ node cdp.mjs click <t> ".like-wrapper"
 node cdp.mjs open  "https://example.com"   # 后台新标签，不打扰用户
 node cdp.mjs shot  <t> /tmp/a.png       # 整页截图
 node cdp.mjs human <t>                  # 交给人操作，等人完成后返回
+node cdp.mjs demo                       # 验证安装（只读，见上文）
 node cdp.mjs daemon status              # daemon / 浏览器状态
 ```
 
@@ -178,10 +191,10 @@ if (need.loginWall || need.captcha || need.twoFactor) {
 
 | 文件 | 作用 |
 |---|---|
-| `scripts/cdp.mjs` | CLI 前端：list / snap / eval / shot / click / type / open / human / daemon 等 |
+| `scripts/cdp.mjs` | CLI 前端：list / snap / eval / shot / click / type / open / human / demo / daemon 等 |
 | `files/cdp-core.mjs` | L0 端口发现 + L1 原生 CDP 原语（零依赖） |
 | `files/cdp-daemon.mjs` | L0 常驻 daemon：持有唯一长连接、自动启动、自动激活后台标签 |
-| `files/browser.mjs` | L2 策略层：Page 封装 + 业务 helper + 交接协议 + 反检测行为 |
+| `files/browser.mjs` | L2 策略层：Page 封装 + 业务 helper + 交接协议 + 安装自检 + 反检测行为 |
 | `references/connect.md` | 正常 Chrome 开启 CDP、授权弹窗语义、daemon、故障排查、环境变量 |
 | `references/pitfalls.md` | 实战踩坑与修复（含本轮实机测量数据） |
 | `references/anti-detection.md` | 反检测信号对照表与 Node 侧实现 |

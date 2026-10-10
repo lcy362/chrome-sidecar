@@ -107,6 +107,22 @@ export class Page {
     return false;
   }
 
+  // Wait for the tab to actually BE at `part` (pitfalls #15). A freshly created tab reports the
+  // initial blank document as readyState 'complete' — which looks loaded while the page is still
+  // about:blank, so every read afterwards comes back empty. Decide on the URL, not on readyState.
+  // Returns the href on success, null on timeout.
+  async waitForUrl(part, { timeout = 15000, interval = 150 } = {}) {
+    const deadline = Date.now() + timeout;
+    while (Date.now() < deadline) {
+      const href = await this.url().catch(() => '');
+      if (href && href.includes(part) && await this.evaluate('document.readyState').catch(() => null) === 'complete') {
+        return href;
+      }
+      await sleep(interval);
+    }
+    return null;
+  }
+
   // Node-side polling until the element appears (no in-page timers)
   async waitForSelector(selector, { timeout = 10000, interval = 200 } = {}) {
     const deadline = Date.now() + timeout;
@@ -455,6 +471,86 @@ export async function waitForHuman(page, {
     await sleep(pollMs);
   }
   return { ok: false, reason: 'timeout', waitedMs: Date.now() - started };
+}
+
+// ---------------------------------------------------------------------------
+// Install check — the same claims, on a page where demonstrating them is safe
+// ---------------------------------------------------------------------------
+
+export const PROJECT_URL = 'https://github.com/lcy362/chrome-sidecar';
+
+/**
+ * Verify an install end to end without doing anything to anyone's account.
+ *
+ * Read-only by design, and the last step is the point: the star button is left alone and handed
+ * to the human, so the handoff rule is *demonstrated* rather than described. This function never
+ * clicks, never types, never navigates after the initial open, and never brings a tab to the
+ * front. Its only lasting effect is one background tab.
+ *
+ * @param {object} opts
+ * @param {string} [opts.repoUrl]   page to open (defaults to this project)
+ * @param {string} [opts.shotPath]  where to write the screenshot
+ * @returns {Promise<{ok:boolean, targetId:string, title:string, stars:string|null, starred:boolean|null, shot:string}>}
+ */
+export async function verifyInstall({
+  repoUrl = PROJECT_URL,
+  shotPath = '/tmp/chrome-sidecar-demo.png',
+} = {}) {
+  console.log('1. connecting to your Chrome');
+  console.log('   every later command reuses this one long-lived connection, so Chrome asks');
+  console.log('   "Allow debugging?" once per browser start instead of once per command');
+  const { newPage } = await connectCDP();
+
+  console.log('2. opening the project page in a NEW BACKGROUND TAB');
+  const page = await newPage(repoUrl);   // newPage passes background:true — the user's tab does not move
+  console.log(`   ${page.targetId.slice(0, 8)}  ${repoUrl}`);
+
+  console.log('3. reading it back over CDP (read-only: no click, no key, no navigation)');
+  // Pitfalls #15: a freshly created tab reports the initial blank document as readyState 'complete',
+  // so waiting on readyState alone reads about:blank and every field comes back empty.
+  if (!await page.waitForUrl(repoUrl)) {
+    console.log(`   ⚠ the tab is still not at ${repoUrl} — reading whatever is there`);
+  }
+  // The star counter is hydrated by React *after* readyState completes, so wait for the element.
+  await page.waitForSelector('#repo-stars-counter-star, a[href*="stargazers"]', { timeout: 8000 });
+  const meta = await page.evaluate(() => {
+    // GitHub has moved this element around more than once: try the id, then the stargazers link.
+    const counter = document.querySelector('#repo-stars-counter-star');
+    const link = document.querySelector('a[href*="stargazers"]');
+    const raw = counter ? (counter.getAttribute('title') || counter.textContent) : (link ? link.textContent : null);
+    const stars = raw ? raw.trim().replace(/\s*stars?$/i, '') : null;
+    const how = counter ? 'the stars counter' : (link ? 'the stargazers link' : 'no star element found');
+    // The star toggle labels itself "Star <owner>/<repo>" or "Unstar <owner>/<repo>".
+    const btn = Array.from(document.querySelectorAll('button[aria-label]'))
+      .find(b => /^(un)?star\b/i.test((b.getAttribute('aria-label') || '').trim()));
+    const starred = btn ? /^unstar\b/i.test(btn.getAttribute('aria-label').trim()) : null;
+    return { title: document.title, stars, how, starred };
+  });
+  const title = meta.title.length > 88 ? meta.title.slice(0, 87) + '…' : meta.title;
+  console.log(`   title : ${title}`);
+  console.log(`   stars : ${meta.stars ?? '(not read)'}   (from ${meta.how})`);
+  console.log(`   starred by you: ${meta.starred === null ? 'unknown' : meta.starred ? 'yes' : 'no'}`);
+
+  console.log('4. screenshot');
+  const shotFile = await shot(page, shotPath, { fullPage: false });
+
+  console.log('');
+  console.log(meta.starred
+    ? '   You have already starred this repository — nothing left to click here.'
+    : '   The star button is on that page and I did not touch it — clicking it is yours to do.');
+  console.log('   That is the whole point: the skill stops at the boundary instead of acting for you.');
+  console.log('');
+  console.log('   Your active tab was not moved. selftest.mjs proves that independently: it reads');
+  console.log("   Chrome's own active tab (AppleScript, macOS only) before and after and asserts the");
+  console.log('   fingerprint is unchanged — document.visibilityState cannot tell you, because focus');
+  console.log('   emulation makes the target page report itself visible.');
+  console.log(`   Tab ${page.targetId.slice(0, 8)} stays open in the background. Close it with:`);
+  console.log(`     node cdp.mjs close ${page.targetId.slice(0, 8)}`);
+
+  return {
+    ok: true, targetId: page.targetId, title: meta.title,
+    stars: meta.stars, starred: meta.starred, shot: shotFile,
+  };
 }
 
 // ---------------------------------------------------------------------------
