@@ -309,25 +309,39 @@ export async function uploadAndVerify(page, filePath, { selector = 'input[type="
     selector = 'input[type="file"]';
   }
   await page.setInputFiles(selector, [filePath]);
-  console.log('  file set; polling for the upload preview…');
+
+  // Snapshot the images that already exist: only a NEWLY appearing one counts.
+  const known = await page.evaluate(() => Array.from(document.querySelectorAll('img')).map(im => im.src || ''));
+
+  console.log('  file set; polling for a SERVER-SIDE artifact (a blob: preview alone proves nothing)…');
   const rounds = Math.ceil(timeout / 1500);
+  let localOnly = false;
   for (let i = 0; i < rounds; i++) {
     await sleep(1500);
-    const st = await page.evaluate(sel => {
+    const st = await page.evaluate(({ sel, seen }) => {
       const input = document.querySelector(sel);
-      const previewImgs = Array.from(document.querySelectorAll('img'))
-        .filter(im => /^(blob:|data:image)/.test(im.src || ''));
+      const srcs = Array.from(document.querySelectorAll('img')).map(im => im.src || '');
+      const freshLocal = srcs.filter(s => /^(blob:|data:image)/.test(s) && !seen.includes(s));
+      const freshRemote = srcs.filter(s => /^https?:/i.test(s) && !seen.includes(s));
       const txt = document.body.innerText || '';
       return {
         files: input ? input.files.length : -1,
-        preview: previewImgs.length,
+        freshLocal: freshLocal.length,
+        freshRemote: freshRemote.length,
         // Chinese patterns match Chinese UIs; keep both.
-      uploading: /上传中|uploading/i.test(txt),
+        uploading: /上传中|uploading/i.test(txt),
         done: /重新上传|已上传|上传成功/.test(txt),
       };
-    }, selector);
-    console.log(`   [${i}] files=${st.files} preview=${st.preview} uploading=${st.uploading} done=${st.done}`);
-    if (st.preview > 0 || st.done) return true;
+    }, { sel: selector, seen: known });
+    console.log(`   [${i}] files=${st.files} localPreview=${st.freshLocal} serverPreview=${st.freshRemote} uploading=${st.uploading} done=${st.done}`);
+    // Success = the APP confirms it: a served URL appeared, or it says "uploaded".
+    if (st.freshRemote > 0 || st.done) return true;
+    if (st.freshLocal > 0) localOnly = true;
+  }
+  if (localOnly) {
+    console.log('  ⚠ only a local blob:/data: preview appeared — the page READ the file, the app never took it.');
+    console.log('     Treat this as NOT uploaded. If the form still reports the field as missing, stop retrying and');
+    console.log('     hand over the exact file path (the upload pipeline rejects automation; that is a real handoff).');
   }
   return false;
 }

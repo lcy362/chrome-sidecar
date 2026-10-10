@@ -132,8 +132,29 @@ This is the part that makes "agent + human in one browser" work instead of colli
 ### Must stop and hand over
 
 Login / signup / account switch, SMS or email codes, QR login, two-factor (2FA), CAPTCHA
-(sliders, image grids), payment or OAuth confirmation, native file pickers, and **anything that
-requires a credential**.
+(sliders, image grids), payment or OAuth confirmation, and **anything that requires a
+credential**.
+
+### File inputs are NOT a handoff trigger
+
+A file *picker dialog* is an OS-level window, but you never need to open it — set the input and
+the page receives an ordinary file selection. Treating "there is a file picker here" as a
+handoff is wrong: it is a normal form field, not a credential.
+
+- Prefer `setInputFiles(selector, [paths])` (wraps `DOM.setFileInputFiles`).
+- When several inputs share one selector, index them: `DOM.querySelectorAll` → choose by
+  position (icon first, gallery second, …) → `DOM.setFileInputFiles` with that `nodeId`.
+- Verify the upload by a **server-side artifact** (a returned `https://…` URL) or by the form's
+  own validation clearing — **never by "a `blob:` preview appeared"**. `URL.createObjectURL`
+  only proves the page *read* the file, not that the app accepted it.
+- If the app still rejects it, the upload pipeline itself is the blocker — stop retrying and
+  hand over **with the exact file paths** (that is a real handoff: the app refuses automation,
+  not a credential wall).
+
+Field-tested split (2026-10): classic server-rendered forms (Rails / Homeland, PHP) accept
+`DOM.setFileInputFiles` outright; React / Next.js SPAs frequently create a local preview and
+then drop the file (server upload fails, or the form keeps reporting the field as missing) —
+observed on Mergeek, Solo and a Next.js avatar form, versus a Rails form that succeeded first try.
 
 ### Never do
 

@@ -63,14 +63,24 @@ So:
 Some sites change behavior when they think they are visible (autoplaying video, for example).
 For those, set `CDP_NO_ACTIVATE=1` and use `click(..., { via: 'dom' })`.
 
-## 4. `setInputFiles` is asynchronous — poll for the preview
+## 4. `setInputFiles` is asynchronous — poll for a **server-side** artifact
 
 `DOM.setFileInputFiles` returns immediately, but the platform-side upload is asynchronous. Click
 submit immediately and the button is still `disabled`, so the click **does nothing, silently**.
 
-**Fix:** poll until a real preview appears (`img[src^=blob:]` / `data:image`) or an
-"uploaded" label shows, then submit. Use `uploadAndVerify()`. This is the single most common
-cause of "it looked like it submitted but did not".
+**Fix:** poll until the app itself confirms the file — a **served URL** (`https://cdn…`) in the
+preview, or an explicit "uploaded / re-upload" label — then submit.
+
+**Do not** accept a `blob:` / `data:` preview as success (a 2026-10 correction: this section
+used to say the opposite, and that advice produced two false positives in one afternoon).
+`URL.createObjectURL` only proves the page **read** the file locally; it says nothing about the
+app accepting it. React / Next.js uploaders routinely show a blob preview and then drop the
+file, leaving the form still complaining that the field is empty.
+
+If only a blob preview ever appears and the form keeps reporting the field as missing, the app
+rejects programmatic uploads — stop retrying and hand over the exact file paths.
+
+Use `uploadAndVerify()`, which now treats a blob-only preview as *not yet uploaded*.
 
 ## 5. Do not judge success from page text
 
