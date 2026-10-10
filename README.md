@@ -158,6 +158,9 @@ node cdp.mjs demo <url-of-the-page-you-care-about>
 Same read-only check either way, and the two asks below still point at this project, never at the page
 being checked.
 
+You can also skip it entirely — it is a check, not a gate. Step 4 works without it, and if you came
+here to get something done, your own task is the better proof.
+
 **It deliberately does not click the star button.** That one is yours to click, and leaving it
 alone is the whole point — the skill stops at the boundary instead of acting on your behalf.
 
