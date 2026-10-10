@@ -73,6 +73,24 @@ function resolveTarget(targets, prefix) {
 
 const fmtTarget = (t, i) => `${String(i).padStart(2)}  ${t.targetId.slice(0, 8)}  ${(t.title || '').slice(0, 50)}`;
 
+// Report whether Chrome's debugging toggle is on, without starting a daemon or opening a
+// connection. The DevToolsActivePort file exists exactly when "Allow remote debugging for this
+// browser instance" is ticked, so it is the honest answer to "is the user set up?" — and the daemon
+// being absent says nothing about it (a daemon only exists once something has connected).
+async function reportEndpoint() {
+  const { resolvePort } = await import('../files/cdp-core.mjs');
+  try {
+    const { port, source } = resolvePort();
+    console.log(`endpoint source:    ${source} (port ${port})`);
+    console.log('  → Chrome\'s debugging toggle is ON; the next command will connect.');
+  } catch {
+    console.log('endpoint source:    NOT found');
+    console.log('  → the toggle is off, or Chrome is not running. Open');
+    console.log('    chrome://inspect/#remote-debugging in the Chrome you normally use and tick');
+    console.log('    "Allow remote debugging for this browser instance".');
+  }
+}
+
 async function main() {
   if (!cmd || cmd === 'help' || cmd === '--help' || cmd === '-h') { console.log(USAGE); return; }
 
@@ -107,6 +125,7 @@ async function main() {
     } catch (e) {
       console.log('daemon: not running');
       if (sub === 'status') {
+        await reportEndpoint();
         console.log('  (use `cdp daemon start`)');
         process.exitCode = 4;
       } else throw e;

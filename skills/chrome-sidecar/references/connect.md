@@ -97,6 +97,22 @@ for authorisation again.
 
 ## 5. Troubleshooting
 
+First question, always — is this machine set up at all?
+
+```console
+$ node cdp.mjs daemon status
+daemon: not running
+endpoint source:    NOT found
+  → the toggle is off, or Chrome is not running. Open
+    chrome://inspect/#remote-debugging in the Chrome you normally use and tick
+    "Allow remote debugging for this browser instance".
+```
+
+The `endpoint source:` line is the answer: a path means the Chrome toggle is on, `NOT found` means it
+is off. This starts nothing, so it is safe to run before any task. `daemon: not running` on its own
+proves nothing — a daemon only exists after something has connected, so on a fresh machine it is
+always absent, and the command exits non-zero either way.
+
 | Symptom | Cause and fix |
 |---|---|
 | `could not find a Chrome debugging port` | Toggle not ticked, or reset by a Chrome restart. Tick it at `chrome://inspect/#remote-debugging` and retry |
