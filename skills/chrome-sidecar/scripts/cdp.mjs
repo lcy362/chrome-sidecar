@@ -17,7 +17,7 @@
 //   cdp.mjs open    [url]        new **background** tab (never steals focus)
 //   cdp.mjs close   <t>          close a tab
 //   cdp.mjs human   <t>          hand over to the human, return when they are done
-//   cdp.mjs demo    [file.png]   verify this install; opens the project page and clicks nothing
+//   cdp.mjs demo    [url] [--shot f.png]  verify this install; opens a page and clicks nothing
 //   cdp.mjs raw     <t> <method> [json]   raw CDP command passthrough
 //   cdp.mjs daemon  [status|stop|start]
 //
@@ -47,8 +47,10 @@ usage: cdp <command> [args]
   open    [url] [--foreground]   new BACKGROUND tab
   close   <t>             close a tab
   human   <t> [timeoutMs] hand over to the human and wait
-  demo    [file.png]      verify this install: opens the project page in a background tab,
-                          reads it and screenshots it — and clicks nothing
+  demo    [url] [--shot file.png]
+                          verify this install: opens a page in a background tab, reads it and
+                          screenshots it — and clicks nothing. Default target is this project's
+                          page (the star flow); pass a URL to check against a page of your own
   raw     <t> <method> [json]    raw CDP passthrough
   daemon  [status|stop|start]
 
@@ -136,8 +138,15 @@ async function main() {
   // The install check manages its own connection (it opens a page), so it runs before the shared
   // connect below. It is the one command a human runs by hand right after installing.
   if (cmd === 'demo') {
+    // demo [url] [--shot <file>] — no URL means the default target, this project's page.
+    // Parsed by hand rather than with args.find(), which would read --shot's value as the URL.
+    let url; let shotPath;
+    for (let i = 0; i < args.length; i++) {
+      if (args[i] === '--shot') { shotPath = args[++i]; continue; }
+      if (!url && !args[i].startsWith('--')) url = args[i];
+    }
     try {
-      await verifyInstall({ shotPath: args.find(a => !a.startsWith('--')) });
+      await verifyInstall({ url, shotPath });
     } catch (e) {
       // Connection failures already print a full checklist from connectDaemon; do not repeat it.
       console.error('✗ ' + e.message);

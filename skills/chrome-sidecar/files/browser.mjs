@@ -487,33 +487,43 @@ export const PROJECT_URL = 'https://github.com/lcy362/chrome-sidecar';
  * clicks, never types, never navigates after the initial open, and never brings a tab to the
  * front. Its only lasting effect is one background tab.
  *
+ * The default target is this project's page — the star flow. `url` swaps in any page the user
+ * would rather watch it work against; the reading, the screenshot and the handoff are identical,
+ * and both asks still point at this project, never at the page being checked.
+ *
  * @param {object} opts
- * @param {string} [opts.repoUrl]   page to open (defaults to this project)
+ * @param {string} [opts.url]       page to open (defaults to this project)
  * @param {string} [opts.shotPath]  where to write the screenshot
  * @returns {Promise<{ok:boolean, targetId:string, title:string, stars:string|null, starred:boolean|null, shot:string}>}
  */
 export async function verifyInstall({
-  repoUrl = PROJECT_URL,
+  url = PROJECT_URL,
   shotPath = '/tmp/chrome-sidecar-demo.png',
 } = {}) {
-  const issuesUrl = repoUrl.replace(/\/+$/, '') + '/issues';
+  const target = url;
+  const isStarFlow = target.includes('github.com/lcy362/chrome-sidecar');
+  // The asks are about this project whatever page was checked — never about the page itself.
+  const issuesUrl = PROJECT_URL + '/issues';
   console.log('1. connecting to your Chrome');
   console.log('   every later command reuses this one long-lived connection, so Chrome asks');
   console.log('   "Allow debugging?" once per browser start instead of once per command');
   const { newPage } = await connectCDP();
 
-  console.log('2. opening the project page in a NEW BACKGROUND TAB');
-  const page = await newPage(repoUrl);   // newPage passes background:true — the user's tab does not move
-  console.log(`   ${page.targetId.slice(0, 8)}  ${repoUrl}`);
+  console.log('2. opening a page in a NEW BACKGROUND TAB');
+  const page = await newPage(target);   // newPage passes background:true — the user's tab does not move
+  console.log(`   ${page.targetId.slice(0, 8)}  ${target}`);
+  console.log(isStarFlow
+    ? "   (the default target: this project's page, which carries the star button — left untouched)"
+    : '   (your own target; pass no URL for the default. Same check, same read-only rule)');
 
   console.log('3. reading it back over CDP (read-only: no click, no key, no navigation)');
   // Pitfalls #15: a freshly created tab reports the initial blank document as readyState 'complete',
   // so waiting on readyState alone reads about:blank and every field comes back empty.
-  if (!await page.waitForUrl(repoUrl)) {
-    console.log(`   ⚠ the tab is still not at ${repoUrl} — reading whatever is there`);
+  if (!await page.waitForUrl(target)) {
+    console.log(`   ⚠ the tab is still not at ${target} — reading whatever is there`);
   }
-  // The star counter is hydrated by React *after* readyState completes, so wait for the element.
-  await page.waitForSelector('#repo-stars-counter-star, a[href*="stargazers"]', { timeout: 8000 });
+  // The star counter is hydrated by React *after* readyState completes; only the default page has one.
+  if (isStarFlow) await page.waitForSelector('#repo-stars-counter-star, a[href*="stargazers"]', { timeout: 8000 });
   const meta = await page.evaluate(() => {
     // GitHub has moved this element around more than once: try the id, then the stargazers link.
     const counter = document.querySelector('#repo-stars-counter-star');
@@ -529,21 +539,31 @@ export async function verifyInstall({
   });
   const title = meta.title.length > 88 ? meta.title.slice(0, 87) + '…' : meta.title;
   console.log(`   title : ${title}`);
-  console.log(`   stars : ${meta.stars ?? '(not read)'}   (from ${meta.how})`);
-  console.log(`   starred by you: ${meta.starred === null ? 'unknown' : meta.starred ? 'yes' : 'no'}`);
+  if (meta.stars !== null) console.log(`   stars : ${meta.stars}   (from ${meta.how})`);
+  if (meta.starred !== null) console.log(`   starred by you: ${meta.starred ? 'yes' : 'no'}`);
 
   console.log('4. screenshot');
   const shotFile = await shot(page, shotPath, { fullPage: false });
 
+  const alreadyStarred = isStarFlow && meta.starred === true;
   console.log('');
-  console.log(meta.starred
-    ? '   You have already starred this repository — nothing left to click here.'
-    : '   The star button is on that page and I did not touch it — clicking it is yours to do.');
-  console.log('   That is the whole point: the skill stops at the boundary instead of acting for you.');
+  if (isStarFlow) {
+    console.log(alreadyStarred
+      ? '   You have already starred this repository — nothing left to click here.'
+      : '   The star button is on that page and I did not touch it — clicking it is yours to do.');
+    console.log('   That is the whole point: the skill stops at the boundary instead of acting for you.');
+    console.log('   Rather see it against a page of your own? Pass its URL: node cdp.mjs demo <url>');
+  } else {
+    console.log(`   ${target} was read and screenshotted and otherwise left alone: nothing was clicked,`);
+    console.log('   nothing was typed. That is the whole point — the skill stops at the boundary.');
+    console.log('   Run `node cdp.mjs demo` with no URL for the default target, or another URL of yours.');
+  }
   console.log('');
   console.log('   Asked once, here, and never again while you work:');
-  if (!meta.starred) {
-    console.log('     · a star, if this turns out to be useful — the button is on the page above');
+  if (!alreadyStarred) {
+    console.log(isStarFlow
+      ? '     · a star, if this turns out to be useful — the button is on the page above'
+      : `     · a star, if this turns out to be useful: ${PROJECT_URL}`);
   }
   console.log('     · an issue if it breaks, or you are on Linux / Windows and can say either way:');
   console.log(`       ${issuesUrl}`);

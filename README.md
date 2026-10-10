@@ -148,6 +148,15 @@ cd chrome-sidecar/skills/chrome-sidecar/scripts && node cdp.mjs demo
 It opens this repository in a **background tab**, reads the page and screenshots it, and prints what
 it did at each step. Watch your own tab while it runs: it should not move.
 
+That is the default target. Would you rather watch it work against a page of your own — your
+dashboard, the site you actually care about? Pass the URL and nothing else changes:
+
+```bash
+node cdp.mjs demo https://your-site.example/
+```
+
+Same read-only check either way: it opens, reads, screenshots, and stops.
+
 **It deliberately does not click the star button.** That one is yours to click, and leaving it
 alone is the whole point — the skill stops at the boundary instead of acting on your behalf.
 
