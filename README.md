@@ -148,14 +148,15 @@ cd chrome-sidecar/skills/chrome-sidecar/scripts && node cdp.mjs demo
 It opens this repository in a **background tab**, reads the page and screenshots it, and prints what
 it did at each step. Watch your own tab while it runs: it should not move.
 
-That is the default target. Would you rather watch it work against a page of your own — your
-dashboard, the site you actually care about? Pass the URL and nothing else changes:
+That is the default target. If you would rather watch it work against a page you actually care about
+— your dashboard, the site you really use — pass that URL and nothing else changes:
 
 ```bash
-node cdp.mjs demo https://your-site.example/
+node cdp.mjs demo <url-of-the-page-you-care-about>
 ```
 
-Same read-only check either way: it opens, reads, screenshots, and stops.
+Same read-only check either way, and the two asks below still point at this project, never at the page
+being checked.
 
 **It deliberately does not click the star button.** That one is yours to click, and leaving it
 alone is the whole point — the skill stops at the boundary instead of acting on your behalf.
@@ -169,11 +170,14 @@ So: two asks, and they are the only ones this tool will ever make of you.
 
 **4. Ask your agent for something**
 
-Now give it something small, so you can watch how it behaves:
+Step 3 runs from your terminal. The other half — the agent reaching for this skill by itself — is only
+proved by asking for something in your own words, on a page you actually use. [Using it](#using-it)
+below has examples.
 
-> Open example.com and tell me the page title.
+There is deliberately no throwaway test page here: step 3 already proved the plumbing, and a real task
+of your own is the only thing that shows the skill working the way you will use it.
 
-Your active tab should not move. See [Using it](#using-it) below for what else to expect.
+Your active tab should not move.
 
 ## Using it
 
