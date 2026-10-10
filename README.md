@@ -98,108 +98,11 @@ gets ugly, because a naive implementation has to pick one of two bad options:
 `chrome-sidecar` takes none of these. It keeps working in the background *and* keeps the input
 real, then stops at the login wall and gives you the keyboard.
 
-## What makes it different
+## Requirements
 
-### 1. Background operation that is not crippled
-
-A background tab in Chrome is throttled hard: `setInterval(16ms)` runs at ~1 Hz,
-`requestAnimationFrame` stops entirely, and — the nasty one — `Input.dispatchMouseEvent`
-**never acks** (it stalls for seconds, though the event *is* delivered; retrying then
-double-clicks).
-
-Two CDP calls fix it without touching the foreground:
-
-```js
-await cdp.send('Emulation.setFocusEmulationEnabled', { enabled: true }, sid);
-await cdp.send('Page.setWebLifecycleState', { state: 'active' }, sid);
-```
-
-Measured on a background tab (Chrome 154, macOS, DPR 2):
-
-| Metric | Before | After |
-|---|---|---|
-| `setInterval(16ms)` ticks per second | 2 | **63** |
-| `requestAnimationFrame` callbacks per second | **0** | **61** |
-| `Input.dispatchMouseEvent` ack | **stalled (>5 s)** | **8–18 ms** |
-| `dispatchKeyEvent` / `insertText` | — | 4 ms / 1 ms |
-| **Your foreground tab** | — | **unchanged** |
-
-That last row is verified independently, not asserted: the test reads Chrome's own active tab
-via AppleScript before and after, and after 25 s of idling. `document.visibilityState` is
-useless for this check — focus emulation makes the target page believe it is visible.
-
-### 2. A human handoff protocol, not just a command set
-
-Most tools hand you 14 primitives and wish you luck. This one defines **when to stop**:
-
-- **Must stop and hand over**: login/signup, SMS or email codes, QR login, 2FA, CAPTCHA,
-  payment or OAuth confirmation, native file pickers, anything requiring a credential.
-- **Never do**: type a user's username/password/OTP, read a password field's value, guess a
-  code, or click while the human is interacting.
-- **`waitForHuman(page)`** polls read-only (no clicks, no navigation, no focusing) with a
-  generous default timeout, then verifies the wall actually disappeared before resuming.
-
-### 3. A policy layer: doing the task *correctly*, not just issuing commands
-
-The difference between "I can click" and "I submitted the form" is a pile of small truths:
-
-- `ensureOn()` — toggle state via **numeric comparison**, not `className`. SPA class names lie,
-  and clicking an already-on toggle turns it *off*; the helper notices the count dropped and
-  clicks back.
-- **Reload-golden-standard** success detection — after submitting, reload and check the button
-  is *gone*. Template status words ("pending review") live permanently in sidebars and produce
-  false positives.
-- `uploadAndVerify()` — `setInputFiles` returns instantly but the upload is async; clicking
-  submit too early silently does nothing. Poll for a real preview.
-- `dismissModals()` / `clickByText()` — overlays swallow pointer events; there is a DOM-click
-  fallback.
-- `scrollFull()` — Node-driven scrolling that also triggers lazy loading.
-
-### 4. Anti-detection that survives the background constraint
-
-Using your real Chrome already gives a genuine fingerprint. What remains is **behavioral
-timing**: `randWait`, `humanClick` (Bézier path with deceleration and micro-adjustment),
-`humanScroll` (variable steps, random pauses, occasional back-scroll), `preRead` (read before
-you interact), `shuffle` (vary action order).
-
-These are driven from Node, not from in-page timers, because of the throttling above. And
-because background input works, you do not have to choose between *being polite* and *looking
-human*.
-
----
-
-## Demo
-
-Real output from `npm test` (`scripts/selftest.mjs`), which drives a throwaway `data:` URL page
-in a background tab — no site, no network:
-
-```console
-$ npm test
-chrome-sidecar selftest  (node v24.14.0 / darwin)
-
-== A. Offline checks ==
-  ✓ parsePortFile reads port and ws path  port=9333 path=/devtools/browser/abc-def
-  ✓ macOS candidate is Google/Chrome (two levels)
-  ✓ shuffle keeps every element
-
-== B. Online checks (background tab, no focus stealing) ==
-  Like before click: 13
-  Like after click: 12
-  ⚠ Like was on and got toggled off; clicking again…
-  Like after corrective click: 13
-  ✓ ensureOn restores a toggle that got switched off  final count=13 Like
-  ✓ dismissModals closes an overlay modal
-  ✓ uploadAndVerify polls until a real preview appears
-  ✓ clickByText hits the button, not the wrapping container
-  ✓ waitForHuman resumes once the human step is done
-  ✓ temporary tab cleaned up
-  ✓ the user foreground tab was never taken  len=139 hash=f052a60e → len=139 hash=f052a60e
-
-=== selftest: 24/24 passed ===
-```
-
-The `ensureOn` sequence above is the point: the toggle was *already on*, so the first click
-turned it off, the helper detected the count drop and clicked back.
+- Node.js **22+** (uses the built-in `WebSocket`)
+- Chrome, Chromium, Brave, or Edge, running normally, with the `chrome://inspect` toggle on
+- Nothing else. No Playwright, no Puppeteer, no npm install.
 
 ## Install the Chrome skill
 
@@ -273,6 +176,76 @@ The technical surface — the API, the command-line front-end, and the rules for
 lives in [`skills/chrome-sidecar/SKILL.md`](skills/chrome-sidecar/SKILL.md), which your agent reads
 on your behalf. Contributors should start at [AGENTS.md](AGENTS.md).
 
+## What makes it different
+
+### 1. Background operation that is not crippled
+
+A background tab in Chrome is throttled hard: `setInterval(16ms)` runs at ~1 Hz,
+`requestAnimationFrame` stops entirely, and — the nasty one — `Input.dispatchMouseEvent`
+**never acks** (it stalls for seconds, though the event *is* delivered; retrying then
+double-clicks).
+
+Two CDP calls fix it without touching the foreground:
+
+```js
+await cdp.send('Emulation.setFocusEmulationEnabled', { enabled: true }, sid);
+await cdp.send('Page.setWebLifecycleState', { state: 'active' }, sid);
+```
+
+Measured on a background tab (Chrome 154, macOS, DPR 2):
+
+| Metric | Before | After |
+|---|---|---|
+| `setInterval(16ms)` ticks per second | 2 | **63** |
+| `requestAnimationFrame` callbacks per second | **0** | **61** |
+| `Input.dispatchMouseEvent` ack | **stalled (>5 s)** | **8–18 ms** |
+| `dispatchKeyEvent` / `insertText` | — | 4 ms / 1 ms |
+| **Your foreground tab** | — | **unchanged** |
+
+That last row is verified independently, not asserted: the test reads Chrome's own active tab
+via AppleScript before and after, and after 25 s of idling. `document.visibilityState` is
+useless for this check — focus emulation makes the target page believe it is visible.
+
+### 2. A human handoff protocol, not just a command set
+
+Most tools hand you 14 primitives and wish you luck. This one defines **when to stop**:
+
+- **Must stop and hand over**: login/signup, SMS or email codes, QR login, 2FA, CAPTCHA,
+  payment or OAuth confirmation, native file pickers, anything requiring a credential.
+- **Never do**: type a user's username/password/OTP, read a password field's value, guess a
+  code, or click while the human is interacting.
+- **`waitForHuman(page)`** polls read-only (no clicks, no navigation, no focusing) with a
+  generous default timeout, then verifies the wall actually disappeared before resuming.
+
+### 3. A policy layer: doing the task *correctly*, not just issuing commands
+
+The difference between "I can click" and "I submitted the form" is a pile of small truths:
+
+- `ensureOn()` — toggle state via **numeric comparison**, not `className`. SPA class names lie,
+  and clicking an already-on toggle turns it *off*; the helper notices the count dropped and
+  clicks back.
+- **Reload-golden-standard** success detection — after submitting, reload and check the button
+  is *gone*. Template status words ("pending review") live permanently in sidebars and produce
+  false positives.
+- `uploadAndVerify()` — `setInputFiles` returns instantly but the upload is async; clicking
+  submit too early silently does nothing. Poll for a real preview.
+- `dismissModals()` / `clickByText()` — overlays swallow pointer events; there is a DOM-click
+  fallback.
+- `scrollFull()` — Node-driven scrolling that also triggers lazy loading.
+
+### 4. Anti-detection that survives the background constraint
+
+Using your real Chrome already gives a genuine fingerprint. What remains is **behavioral
+timing**: `randWait`, `humanClick` (Bézier path with deceleration and micro-adjustment),
+`humanScroll` (variable steps, random pauses, occasional back-scroll), `preRead` (read before
+you interact), `shuffle` (vary action order).
+
+These are driven from Node, not from in-page timers, because of the throttling above. And
+because background input works, you do not have to choose between *being polite* and *looking
+human*.
+
+---
+
 ## Security and privacy
 
 This tool drives a session that can read everything you are logged into. Treat it accordingly.
@@ -288,6 +261,19 @@ This tool drives a session that can read everything you are logged into. Treat i
   Chrome; sessions and authorisations will interfere.
 - **Use it on your own accounts.** This is built so an agent can do the repetitive parts of
   *your* work, not to farm accounts or bypass a platform's limits.
+
+## Demo
+
+`npm test` (`scripts/selftest.mjs`) drives a throwaway `data:` URL page in a background tab — no
+site, no network. The full run, and the external evidence behind the "never steals your focus"
+claim, are in **[docs/demo.md](docs/demo.md)**. The assertion that matters:
+
+```console
+  ✓ the user foreground tab was never taken  len=139 hash=f052a60e → len=139 hash=f052a60e
+```
+
+The `ensureOn` sequence is the part worth reading closely: the toggle was *already on*, so the
+first click turned it off, the helper detected the count drop and clicked back.
 
 ## Platform support
 
@@ -344,12 +330,6 @@ docs/zh-CN/                  the same docs in Chinese
 ```
 
 Root files: `README.md` (this), `README.zh-CN.md`, `AGENTS.md`, `LICENSE` (MIT), `package.json`.
-
-## Requirements
-
-- Node.js **22+** (uses the built-in `WebSocket`)
-- Chrome, Chromium, Brave, or Edge, running normally, with the `chrome://inspect` toggle on
-- Nothing else. No Playwright, no Puppeteer, no npm install.
 
 ## Contributing
 

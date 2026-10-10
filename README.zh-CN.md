@@ -48,89 +48,11 @@
 
 `chrome-sidecar` 三个都不选。它既留在后台，又保持输入真实，然后在登录墙前停下，把键盘交给你。
 
-## 差异点
+## 环境要求
 
-### 1. 后台操作，但不是残缺的后台
-
-Chrome 对后台标签限流很凶：`setInterval(16ms)` 实际只有约 1 Hz 次，`requestAnimationFrame` 完全停止，还有最阴的一条——`Input.dispatchMouseEvent` **永远不返回 ack**（会卡住好几秒，但事件**其实已经送达**；此时若当成失败去重试，就会重复点击）。
-
-两个 CDP 调用就能修好，而且完全不碰前台：
-
-```js
-await cdp.send('Emulation.setFocusEmulationEnabled', { enabled: true }, sid);
-await cdp.send('Page.setWebLifecycleState', { state: 'active' }, sid);
-```
-
-后台标签实测（Chrome 154 / macOS / DPR 2）：
-
-| 指标 | 之前 | 之后 |
-|---|---|---|
-| `setInterval(16ms)` 每秒次数 | 2 | **63** |
-| `requestAnimationFrame` 每秒回调 | **0** | **61** |
-| `Input.dispatchMouseEvent` ack | **卡住（>5 秒）** | **8–18 ms** |
-| `dispatchKeyEvent` / `insertText` | — | 4 ms / 1 ms |
-| **你的前台标签** | — | **始终未变** |
-
-最后一行不是声称，是独立验证的：测试在操作前后、以及静置 25 秒后，用 AppleScript 读取 Chrome 自身的活动标签做比对。`document.visibilityState` 对这件事**没有用**——伪聚焦会让目标页以为自己可见。
-
-### 2. 人机交接协议，而不只是一堆命令
-
-多数工具丢给你 14 个原语就完事。这个额外定义了**什么时候该停**：
-
-- **必须停下交接**：登录 / 注册、短信或邮箱验证码、扫码登录、双因子、人机验证、支付或 OAuth 二次确认、原生文件选择框，以及任何需要凭据的字段。
-- **绝不做**：代填用户名 / 密码 / 验证码，读取 password 字段的值，猜验证码，或在人操作期间点击。
-- **`waitForHuman(page)`**：只读轮询（不点击、不导航、不抢前台），默认超时给得很宽，恢复前会再确认一次登录墙确实消失了。
-
-### 3. 策略层：把任务做**对**，而不是"能下命令"
-
-"我能点击"和"我提交成功了"之间隔着一堆小事：
-
-- `ensureOn()` —— 用**数字比较**判断开关态，而不是 `className`。SPA 的 class 会撒谎，而且点一个本来就开着的开关会把它**关掉**；这个 helper 会发现计数掉了然后补点回来。
-- **reload 金标准**判成功 —— 提交后 reload，确认按钮**消失了**。模板里的状态词（"待审核"之类）常年挂在侧边栏，会给出假阳性。
-- `uploadAndVerify()` —— `setInputFiles` 立刻返回但上传是异步的；过早提交会**静默无效**。要轮询到真实预览出现。
-- `dismissModals()` / `clickByText()` —— 遮罩会吞掉指针事件，有 DOM 点击兜底。
-- `scrollFull()` —— Node 侧驱动滚动，同时触发懒加载。
-
-### 4. 在"后台"这个约束下依然成立的反检测
-
-用你的真实 Chrome 本身就已经拿到了真指纹。剩下的暴露面是**行为时序**：`randWait`、`humanClick`（贝塞尔轨迹 + 减速接近 + 微调）、`humanScroll`（变速、随机停顿、偶尔回滚）、`preRead`（先阅读再互动）、`shuffle`（打乱动作顺序）。
-
-这些全部由 Node 侧驱动（因为上文的后台节流），而且因为后台输入可用，你**不必**在"礼貌"和"像人"之间二选一。
-
----
-
-## 演示
-
-`npm test`（`scripts/selftest.mjs`）的真实输出——它在后台标签里驱动一个一次性的 `data:` URL 页面，不碰任何站点、不走网络：
-
-工具输出是英文的（面向国际用户），下面是真实运行结果：
-
-```console
-$ npm test
-chrome-sidecar selftest  (node v24.14.0 / darwin)
-
-== A. Offline checks ==
-  ✓ parsePortFile reads port and ws path  port=9333 path=/devtools/browser/abc-def
-  ✓ macOS candidate is Google/Chrome (two levels)
-  ✓ shuffle keeps every element
-
-== B. Online checks (background tab, no focus stealing) ==
-  Like before click: 13
-  Like after click: 12
-  ⚠ Like was on and got toggled off; clicking again…
-  Like after corrective click: 13
-  ✓ ensureOn restores a toggle that got switched off  final count=13 Like
-  ✓ dismissModals closes an overlay modal
-  ✓ uploadAndVerify polls until a real preview appears
-  ✓ clickByText hits the button, not the wrapping container
-  ✓ waitForHuman resumes once the human step is done
-  ✓ temporary tab cleaned up
-  ✓ the user foreground tab was never taken  len=139 hash=f052a60e → len=139 hash=f052a60e
-
-=== selftest: 24/24 passed ===
-```
-
-上面 `ensureOn` 的那段才是重点：那个开关**本来就是开着的**，所以第一次点击把它关掉了，helper 发现计数下降后补点恢复。
+- Node.js **22+**（使用内置 `WebSocket`）
+- Chrome / Chromium / Brave / Edge，正常启动，且已打开 `chrome://inspect` 开关
+- 其他都不需要。不用 Playwright、不用 Puppeteer、不用 npm install。
 
 ## 安装这个 Chrome 技能
 
@@ -192,6 +114,57 @@ cp -R chrome-sidecar/skills/chrome-sidecar ~/.claude/skills/     # 或你所用 
 [`skills/chrome-sidecar/SKILL.md`](skills/chrome-sidecar/SKILL.md)（你的 agent 会自己读）
 与 [AGENTS.md](AGENTS.md)（贡献者从这看起）。
 
+## 差异点
+
+### 1. 后台操作，但不是残缺的后台
+
+Chrome 对后台标签限流很凶：`setInterval(16ms)` 实际只有约 1 Hz 次，`requestAnimationFrame` 完全停止，还有最阴的一条——`Input.dispatchMouseEvent` **永远不返回 ack**（会卡住好几秒，但事件**其实已经送达**；此时若当成失败去重试，就会重复点击）。
+
+两个 CDP 调用就能修好，而且完全不碰前台：
+
+```js
+await cdp.send('Emulation.setFocusEmulationEnabled', { enabled: true }, sid);
+await cdp.send('Page.setWebLifecycleState', { state: 'active' }, sid);
+```
+
+后台标签实测（Chrome 154 / macOS / DPR 2）：
+
+| 指标 | 之前 | 之后 |
+|---|---|---|
+| `setInterval(16ms)` 每秒次数 | 2 | **63** |
+| `requestAnimationFrame` 每秒回调 | **0** | **61** |
+| `Input.dispatchMouseEvent` ack | **卡住（>5 秒）** | **8–18 ms** |
+| `dispatchKeyEvent` / `insertText` | — | 4 ms / 1 ms |
+| **你的前台标签** | — | **始终未变** |
+
+最后一行不是声称，是独立验证的：测试在操作前后、以及静置 25 秒后，用 AppleScript 读取 Chrome 自身的活动标签做比对。`document.visibilityState` 对这件事**没有用**——伪聚焦会让目标页以为自己可见。
+
+### 2. 人机交接协议，而不只是一堆命令
+
+多数工具丢给你 14 个原语就完事。这个额外定义了**什么时候该停**：
+
+- **必须停下交接**：登录 / 注册、短信或邮箱验证码、扫码登录、双因子、人机验证、支付或 OAuth 二次确认、原生文件选择框，以及任何需要凭据的字段。
+- **绝不做**：代填用户名 / 密码 / 验证码，读取 password 字段的值，猜验证码，或在人操作期间点击。
+- **`waitForHuman(page)`**：只读轮询（不点击、不导航、不抢前台），默认超时给得很宽，恢复前会再确认一次登录墙确实消失了。
+
+### 3. 策略层：把任务做**对**，而不是"能下命令"
+
+"我能点击"和"我提交成功了"之间隔着一堆小事：
+
+- `ensureOn()` —— 用**数字比较**判断开关态，而不是 `className`。SPA 的 class 会撒谎，而且点一个本来就开着的开关会把它**关掉**；这个 helper 会发现计数掉了然后补点回来。
+- **reload 金标准**判成功 —— 提交后 reload，确认按钮**消失了**。模板里的状态词（"待审核"之类）常年挂在侧边栏，会给出假阳性。
+- `uploadAndVerify()` —— `setInputFiles` 立刻返回但上传是异步的；过早提交会**静默无效**。要轮询到真实预览出现。
+- `dismissModals()` / `clickByText()` —— 遮罩会吞掉指针事件，有 DOM 点击兜底。
+- `scrollFull()` —— Node 侧驱动滚动，同时触发懒加载。
+
+### 4. 在"后台"这个约束下依然成立的反检测
+
+用你的真实 Chrome 本身就已经拿到了真指纹。剩下的暴露面是**行为时序**：`randWait`、`humanClick`（贝塞尔轨迹 + 减速接近 + 微调）、`humanScroll`（变速、随机停顿、偶尔回滚）、`preRead`（先阅读再互动）、`shuffle`（打乱动作顺序）。
+
+这些全部由 Node 侧驱动（因为上文的后台节流），而且因为后台输入可用，你**不必**在"礼貌"和"像人"之间二选一。
+
+---
+
 ## 安全与隐私
 
 这个工具驱动的会话能读到你所登录的一切。请按这个分量对待它。
@@ -202,6 +175,16 @@ cp -R chrome-sidecar/skills/chrome-sidecar ~/.claude/skills/     # 或你所用 
 - **数据不出本机。** 没有遥测、没有远端接口、没有埋点。
 - **同一时间只允许一个驱动方。** 不要让两套 CDP 工具（例如另一个 MCP server）连同一个 Chrome，会话与授权会互相干扰。
 - **只用在你自己的账号上。** 它是为了让 agent 替你完成工作中的重复部分，不是用来批量养号或绕过平台限制。
+
+## 演示
+
+`npm test`（`scripts/selftest.mjs`）在后台标签里驱动一个一次性的 `data:` URL 页面——不碰任何站点、不走网络。完整运行结果，以及"从不抢前台"这一说法的外部证据，都在 **[docs/demo.md](docs/demo.md)**。最关键是这一行断言：
+
+```console
+  ✓ the user foreground tab was never taken  len=139 hash=f052a60e → len=139 hash=f052a60e
+```
+
+`ensureOn` 的那段才值得细读：那个开关**本来就是开着的**，所以第一次点击把它关掉了，helper 发现计数下降后补点恢复。
 
 ## 平台支持
 
@@ -251,12 +234,6 @@ docs/zh-CN/                  同一套文档的中文版
 ```
 
 根目录：`README.md`（英文）、`README.zh-CN.md`（本文）、`AGENTS.md`、`LICENSE`（MIT）、`package.json`。
-
-## 环境要求
-
-- Node.js **22+**（使用内置 `WebSocket`）
-- Chrome / Chromium / Brave / Edge，正常启动，且已打开 `chrome://inspect` 开关
-- 其他都不需要。不用 Playwright、不用 Puppeteer、不用 npm install。
 
 ## 参与贡献
 
