@@ -174,6 +174,8 @@ async function onlineChecks() {
   check('uploadAndVerify rejects a blob-only preview', blobOnly === false, `returned ${blobOnly}`);
 
   // Fixture 2: the app itself confirms the upload. That is the real success signal.
+  // The Chinese label below is match data for uploadAndVerify's "uploaded" pattern (AGENTS.md 2.6),
+  // the same way a Chinese UI would report it — not prose, and not a translation to be made.
   await page.evaluate(() => {
     const i = document.getElementById('f2');
     i.addEventListener('change', () => i.insertAdjacentHTML('afterend', '<span>已上传</span>'));

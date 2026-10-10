@@ -379,6 +379,8 @@ export async function devicePixelRatio(cdp, sid) {
 }
 
 // Signals for "does a human need to step in", used to trigger a handoff.
+// The Chinese patterns below match Chinese UIs, the English ones English UIs: both sets are match
+// data, not prose. Keep every language you add; do not translate either set away (AGENTS.md 2.6).
 export async function detectHumanNeeded(cdp, sid) {
   return evaluate(cdp, sid, () => {
     const txt = (document.body?.innerText || '').slice(0, 20000);

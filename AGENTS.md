@@ -162,7 +162,14 @@ AGENTS.md            this file
 
 ## 6. Commits and releases
 
-- Commit messages in **English**: a short title, then bullets explaining what and why.
+- **The repository speaks English** — commit messages, code comments, doc strings, user-facing output.
+  Commit messages especially: a short title, then bullets explaining what and why. This is not a style
+  preference. `README.md`, `SKILL.md` and `references/` are read by people who will skim the log, and
+  `docs/zh-CN/` exists precisely so that nothing above it has to be Chinese.
+- Chinese is deliberate in exactly three places — `README.zh-CN.md`, `docs/zh-CN/`, and the match data
+  in `files/` (see 2.6). Anywhere else it is a leak that survived review, not a translation waiting to
+  be made. A Chinese *brand name* inside an English sentence is still a leak: generalize it or
+  romanize it rather than leaving one script-switch in the middle of a paragraph.
 - **Separate text-only changes from behavioural ones.** A pure translation or doc pass must be its
   own commit, so it can be skimmed and reverted independently.
 - When a change fixes a defect found while doing something else, say so explicitly in the message.
