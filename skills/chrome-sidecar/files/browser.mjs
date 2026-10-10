@@ -297,7 +297,9 @@ export async function dismissModals(page, { rounds = 4 } = {}) {
   }
 }
 
-// Upload a file and **poll** until a real preview appears.
+// Upload a file and **poll** until the app itself confirms it: a served `https://` URL in the
+// preview, or an explicit "uploaded / re-upload" label. A `blob:` / `data:` preview is NOT that —
+// it only proves the page read the file locally.
 // setInputFiles returns synchronously but the platform-side upload is async: submitting too early
 // fails silently while the button is still disabled — the most common trap there is.
 export async function uploadAndVerify(page, filePath, { selector = 'input[type="file"][accept*="image"]', timeout = 18000 } = {}) {
@@ -308,10 +310,13 @@ export async function uploadAndVerify(page, filePath, { selector = 'input[type="
     if (!any) { console.log('  ⚠ no file input found'); return false; }
     selector = 'input[type="file"]';
   }
-  await page.setInputFiles(selector, [filePath]);
-
-  // Snapshot the images that already exist: only a NEWLY appearing one counts.
+  // Snapshot the images that already exist BEFORE setting the input: only a newly appearing one
+  // counts, and the snapshot has to come first. `change` fires in the same turn as
+  // DOM.setFileInputFiles, so a snapshot taken afterwards already contains the new preview —
+  // every preview then looks pre-existing and the poll can never succeed.
   const known = await page.evaluate(() => Array.from(document.querySelectorAll('img')).map(im => im.src || ''));
+
+  await page.setInputFiles(selector, [filePath]);
 
   console.log('  file set; polling for a SERVER-SIDE artifact (a blob: preview alone proves nothing)…');
   const rounds = Math.ceil(timeout / 1500);

@@ -107,6 +107,7 @@ const TEST_PAGE = `<!doctype html><meta charset=utf-8><title>cdp-selftest</title
 <div class="row" id="like" data-on="1"><span class="cnt">13</span> Like</div>
 <div class="row"><button id="submit">Submit task</button></div>
 <div class="row"><input id="f" type="file" accept="image/*"></div>
+<div class="row"><input id="f2" type="file" accept="image/*"></div>
 <div class="row" id="loginbox"><input type="password" placeholder="Password"></div>
 <div class="row"><div role="dialog" data-state="open" style="position:relative;z-index:50">
   <button id="dismiss">Got it</button></div></div>
@@ -157,15 +158,28 @@ async function onlineChecks() {
   await dismissModals(page);
   check('dismissModals closes an overlay modal', (await page.count('[role=dialog]')) === 0);
 
+  // Fixture 1: the page reads the file and shows a LOCAL preview only — exactly what React /
+  // Next.js uploaders do before the server drops it. The 2026-10 correction says this is NOT
+  // success, so uploadAndVerify must return false. (This used to assert the opposite, and a
+  // baseline snapshot taken after setInputFiles also hid the new preview entirely.)
   await page.evaluate(() => {
     const i = document.getElementById('f');
     i.addEventListener('change', () => {
       const img = document.createElement('img');
-      img.src = URL.createObjectURL(i.files[0]);
+      img.src = URL.createObjectURL(i.files[0]);   // blob: — proves the page read it, nothing more
       i.after(img);
     });
   });
-  check('uploadAndVerify polls until a real preview appears', (await uploadAndVerify(page, png)) === true);
+  const blobOnly = await uploadAndVerify(page, png, { timeout: 4500 });
+  check('uploadAndVerify rejects a blob-only preview', blobOnly === false, `returned ${blobOnly}`);
+
+  // Fixture 2: the app itself confirms the upload. That is the real success signal.
+  await page.evaluate(() => {
+    const i = document.getElementById('f2');
+    i.addEventListener('change', () => i.insertAdjacentHTML('afterend', '<span>已上传</span>'));
+  });
+  const confirmed = await uploadAndVerify(page, png, { selector: '#f2', timeout: 6000 });
+  check('uploadAndVerify accepts an app-confirmed upload', confirmed === true, `returned ${confirmed}`);
 
   check('clickByText hits the button, not the wrapping container', (await clickByText(page, 'Submit task')) === true
     && (await page.count('#submit')) === 0);
