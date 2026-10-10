@@ -91,6 +91,11 @@ cd chrome-sidecar/skills/chrome-sidecar/scripts && node cdp.mjs demo
 
 **它刻意不去点 star 按钮。** 那一下留给你自己点，而这正是全部设计的要点——技能在边界处停下，而不是替你做主。
 
+所以只有两个请求，也是这个工具唯一会对你提的请求：
+
+- **如果它确实好用，欢迎点个 star。**
+- **如果它坏了——或者你在 Linux / Windows 上，能说一句跑不跑得起来——欢迎开 issue。** 不管验证结果是能跑还是不能跑，都是目前最有价值的贡献：<https://github.com/lcy362/chrome-sidecar/issues>
+
 **4. 让 agent 去做一件事**
 
 现在提个小请求，好观察它的行为：

@@ -151,6 +151,13 @@ it did at each step. Watch your own tab while it runs: it should not move.
 **It deliberately does not click the star button.** That one is yours to click, and leaving it
 alone is the whole point — the skill stops at the boundary instead of acting on your behalf.
 
+So: two asks, and they are the only ones this tool will ever make of you.
+
+- **If it turns out to be useful, a star is welcome.**
+- **If it breaks — or you are on Linux or Windows and can say whether it works — please open an
+  issue.** Confirming a platform either way is the most useful thing you can contribute right now:
+  <https://github.com/lcy362/chrome-sidecar/issues>
+
 **4. Ask your agent for something**
 
 Now give it something small, so you can watch how it behaves:

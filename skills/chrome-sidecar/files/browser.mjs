@@ -496,6 +496,7 @@ export async function verifyInstall({
   repoUrl = PROJECT_URL,
   shotPath = '/tmp/chrome-sidecar-demo.png',
 } = {}) {
+  const issuesUrl = repoUrl.replace(/\/+$/, '') + '/issues';
   console.log('1. connecting to your Chrome');
   console.log('   every later command reuses this one long-lived connection, so Chrome asks');
   console.log('   "Allow debugging?" once per browser start instead of once per command');
@@ -539,6 +540,13 @@ export async function verifyInstall({
     ? '   You have already starred this repository — nothing left to click here.'
     : '   The star button is on that page and I did not touch it — clicking it is yours to do.');
   console.log('   That is the whole point: the skill stops at the boundary instead of acting for you.');
+  console.log('');
+  console.log('   Asked once, here, and never again while you work:');
+  if (!meta.starred) {
+    console.log('     · a star, if this turns out to be useful — the button is on the page above');
+  }
+  console.log('     · an issue if it breaks, or you are on Linux / Windows and can say either way:');
+  console.log(`       ${issuesUrl}`);
   console.log('');
   console.log('   Your active tab was not moved. selftest.mjs proves that independently: it reads');
   console.log("   Chrome's own active tab (AppleScript, macOS only) before and after and asserts the");
