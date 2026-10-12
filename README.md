@@ -37,6 +37,8 @@ the topic list, and package.json.
 
 **A Chrome skill for AI agents — give your agent hands in your own Chrome, without taking the wheel.**
 
+[![Chrome Sidecar on AI Agents Listing](https://aiagentslisting.com/chrome-sidecar/badge.svg?claim=ada0484045f0f2eae4efc01f1406fa8c)](https://aiagentslisting.com/mcp/chrome-sidecar)
+
 `chrome-sidecar` is an [agent skill](https://github.com/pasky/chrome-cdp-skill)-style toolkit that
 drives the Chrome you are *already using*: your profile, your tabs, your logins. It works in
 **background tabs** so it never steals your focus, uses **real mouse and keyboard events** so it
